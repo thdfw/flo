@@ -1,8 +1,12 @@
 from typing import List, Optional
 
-HORIZON = 15 # hours
+HORIZON = 10 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
+MIN_TOP_TEMP = 50 # C
+MAX_TOP_TEMP = 80 # C
+TEMP_LIFT = 11.11 # C
+NUM_LAYERS = 12
 
 
 class Node():
@@ -15,11 +19,12 @@ class Node():
         self.prev: Optional[Node] = None
 
     def energy(self):
-        m_top = (self.thermocline-1)*M_LAYER
-        m_bottom = (12-self.thermocline)*M_LAYER
-        joules = m_top*4187*self.top_temp + m_bottom*4187*(self.top_temp-11.11)
-        kWh = joules/3600/1000
-        return round(kWh,2)
+        energy_top = (self.thermocline-1)*M_LAYER * 4187 * self.top_temp
+        energy_bottom = (12-self.thermocline)*M_LAYER * 4187 * (self.top_temp-TEMP_LIFT)
+        energy_middle = M_LAYER*4187*(self.top_temp-TEMP_LIFT/2)
+        total_joules = energy_top + energy_bottom # + energy_middle
+        total_kWh = total_joules/3600/1000
+        return round(total_kWh,2)
 
 
 class Edge():
@@ -49,8 +54,8 @@ class Graph():
         self.nodes.extend([
             Node(time_slice, top_temp, thermocline) 
             for time_slice in range(HORIZON) 
-            for top_temp in range(59, 80) 
-            for thermocline in range(1, 3)
+            for top_temp in range(MIN_TOP_TEMP, MAX_TOP_TEMP) 
+            for thermocline in range(1, NUM_LAYERS+1)
             if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
             ])
     
@@ -69,6 +74,7 @@ class Graph():
                         self.edges.append(Edge(node2,node1,cost))
 
     def solve_dijkstra(self):
+        print("Running Dijkstra...")
         source_node = self.nodes[0]
         source_node.dist = 0
         self.nodes_unvisited = self.nodes.copy()
@@ -102,5 +108,5 @@ class Graph():
         return self.nodes[shortest_path[-2]]
 
 
-g = Graph(current_state=[0,60,3])
+g = Graph(current_state=[0,51,1])
 next_node = g.solve_dijkstra()
