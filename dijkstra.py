@@ -20,9 +20,9 @@ class Node():
 
     def energy(self):
         energy_top = (self.thermocline-1)*M_LAYER * 4187 * self.top_temp
-        energy_bottom = (12-self.thermocline)*M_LAYER * 4187 * (self.top_temp-TEMP_LIFT)
+        energy_bottom = (NUM_LAYERS-self.thermocline)*M_LAYER * 4187 * (self.top_temp-TEMP_LIFT)
         energy_middle = M_LAYER*4187*(self.top_temp-TEMP_LIFT/2)
-        total_joules = energy_top + energy_bottom # + energy_middle
+        total_joules = energy_top + energy_bottom + energy_middle
         total_kWh = total_joules/3600/1000
         return round(total_kWh,2)
 
@@ -69,8 +69,9 @@ class Graph():
                     energy_from_HP = energy_to_store + self.load[node1.time_slice]
 
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
-                        cop = self.COP(oat=self.oat[node1.time_slice], ewt=0, lwt=0)
-                        cost = self.elec_costs[node1.time_slice] / cop * energy_from_HP if energy_from_HP>0 else 0
+                        cop = self.COP(oat=self.oat[node1.time_slice], ewt=node1.top_temp-TEMP_LIFT, lwt=node2.top_temp)
+                        elec_cost = self.elec_costs[node1.time_slice]
+                        cost = elec_cost * energy_from_HP / cop 
                         self.edges.append(Edge(node2,node1,cost))
 
     def solve_dijkstra(self):
@@ -93,6 +94,7 @@ class Graph():
                     n.prev = closest_node
             # Mark the current node as visited
             self.nodes_unvisited.remove(closest_node)
+            print(len(self.nodes_unvisited))
         # Find the node in the final layer which has the lowest cost
         min_node = min((x for x in self.nodes if x.time_slice==HORIZON-1), key=lambda n: n.dist)
         shortest_path = [self.nodes.index(min_node)]
