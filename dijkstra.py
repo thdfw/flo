@@ -43,11 +43,11 @@ class Graph():
         self.define_edges()
         self.list_hp_energy = []
         self.list_storage_energy = []
-        self.list_elec_costs = []
+        self.list_elec_prices = []
         self.list_load = []
 
     def get_forecasts(self):
-        self.elec_costs = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 11.08, 4.49, 1.52, 
+        self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 11.08, 4.49, 1.52, 
                            0.74, 0.42, 0.71, 0.97, 2.45, 3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*3
         self.oat = [-2]*HORIZON
         self.load = [4]*HORIZON
@@ -77,7 +77,7 @@ class Graph():
 
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
                         cop = self.COP(oat=self.oat[node1.time_slice], ewt=node1.top_temp-TEMP_LIFT, lwt=node2.top_temp)
-                        elec_cost = self.elec_costs[node1.time_slice]
+                        elec_cost = self.elec_prices[node1.time_slice]
                         cost = elec_cost * energy_from_HP / cop 
                         self.edges.append(Edge(node2,node1,cost))
 
@@ -114,12 +114,12 @@ class Graph():
             energy_from_HP = energy_to_store + self.load[min_node.prev.time_slice]
             if PRINT:
                 print(f"---- Time {min_node.prev.time_slice} to {min_node.time_slice} ----")
-                print(f"Elec price: {self.elec_costs[min_node.prev.time_slice]}")
+                print(f"Elec price: {self.elec_prices[min_node.prev.time_slice]}")
                 print(f"Top temperature: {min_node.prev.top_temp} -> {min_node.top_temp}")
                 print(f"Thermocline: {min_node.prev.thermocline} -> {min_node.thermocline}")
                 print(f"Energy from HP: {round(energy_from_HP,2)}\n")
             self.list_storage_energy = [min_node.energy()] + self.list_storage_energy
-            self.list_elec_costs = [self.elec_costs[min_node.prev.time_slice]] + self.list_elec_costs
+            self.list_elec_prices = [self.elec_prices[min_node.prev.time_slice]] + self.list_elec_prices
             self.list_load = [self.load[min_node.prev.time_slice]] + self.list_load
             self.list_hp_energy = [round(energy_from_HP,2)] + self.list_hp_energy
             min_node = min_node.prev
@@ -139,13 +139,16 @@ class Graph():
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
         ax[0].set_ylabel('Heat [kWh]')
         ax[0].set_ylim([-1,20])
-        ax[0].legend()
+        ax[0].legend(loc='upper left')
         ax2 = ax[0].twinx()
-        ax2.step(time_list, self.list_elec_costs+[self.list_elec_costs[-1]], where='post', color='gray', alpha=0.6)
+        ax2.step(time_list, self.list_elec_prices+[self.list_elec_prices[-1]], where='post', color='gray', alpha=0.6, label='Elec price')
         ax2.set_ylabel('Electricity price [cts/kWh]')
+        ax2.legend(loc='upper right')
         ax[1].plot(time_list, soc_list, color='tab:orange', alpha=0.6)
         ax[1].set_ylabel('SOC [%]')
         ax[1].set_xlabel('Time [hours]')
+        if len(time_list)<50 and len(time_list)>10:
+            ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
         plt.show()
 
 
