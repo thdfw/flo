@@ -92,8 +92,8 @@ class Graph():
             if closest_node.dist == 1e9:
                 break
             # For all unvisisted connected nodes, find their distance to the source through the current node
-            self.neighbours = [x.tail for x in self.edges if (x.head==closest_node and x.tail in self.nodes_unvisited)]
-            for n in self.neighbours:
+            neighbours = [x.tail for x in self.edges if (x.head==closest_node and x.tail in self.nodes_unvisited)]
+            for n in neighbours:
                 e = [x for x in self.edges if x.tail==n and x.head==closest_node][0]
                 distance = closest_node.dist + e.cost
                 if distance < n.dist:
@@ -153,7 +153,9 @@ class Graph():
 
 
 g = Graph(current_state=[0,51,1])
+
 start_time = time.time()
 next_node = g.solve_dijkstra()
 print(f"Dijkstra ran in {round(time.time()-start_time,2)} seconds.")
+
 g.plot()
