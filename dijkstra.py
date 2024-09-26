@@ -16,8 +16,7 @@ class Node():
         self.time_slice = time_slice
         self.top_temp = top_temp
         self.thermocline = thermocline
-        # Initial values for Dijkstra
-        self.pathcost = int(1e5)
+        self.pathcost = int(1e9)
         self.next_node = None
 
     def __repr__(self):
@@ -49,19 +48,14 @@ class Graph():
         self.get_forecasts()
         self.define_nodes(current_state)
         self.define_edges()
-        self.list_hp_energy = []
-        self.list_storage_energy = []
-        self.list_elec_prices = []
-        self.list_load = []
-        self.list_thermoclines = []
-        self.list_toptemps = []
         print(f"Done in {round(time.time()-start_time)} seconds.\n")
 
     def get_forecasts(self):
-        self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 11.08, 4.49, 1.52, 
-                           0.74, 0.42, 0.71, 0.97, 2.45, 3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*3
-        self.oat = [-2]*HORIZON*2
-        self.load = [4]*HORIZON*2
+        self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 
+                            11.08, 4.49, 1.52, 0.74, 0.42, 0.71, 0.97, 2.45, 
+                            3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*3
+        self.load = [4]*HORIZON*3
+        self.oat = [-2]*HORIZON*3
 
     def COP(self, oat, ewt, lwt):
         return 2
@@ -113,7 +107,7 @@ class Graph():
                                 self.edges.append(Edge(node2,node1,cost))
 
                         # DONT TOUCH the storage
-                        elif energy_to_store == 0 and node2.top_temp==node1.top_temp and node2.thermocline==node1.thermocline:
+                        elif energy_to_store==0 and node2.top_temp==node1.top_temp and node2.thermocline==node1.thermocline:
                             self.edges.append(Edge(node2,node1,cost))
    
     def solve_dijkstra(self):
@@ -147,6 +141,12 @@ class Graph():
         return
 
     def plot(self, print_nodes:bool):
+        self.list_hp_energy = []
+        self.list_storage_energy = []
+        self.list_elec_prices = []
+        self.list_load = []
+        self.list_thermoclines = []
+        self.list_toptemps = []
         # Go through the shortest path
         node_i = self.source_node
         if print_nodes: print(node_i)
