@@ -1,10 +1,10 @@
 import time
 import matplotlib.pyplot as plt
 
-HORIZON = 48 # hours
+HORIZON = 5 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
-MIN_TOP_TEMP = 50 # C
+MIN_TOP_TEMP = 80 # C
 MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11.11 # C
 NUM_LAYERS = 12
@@ -17,8 +17,16 @@ class Node():
         self.top_temp = top_temp
         self.thermocline = thermocline
         # Initial values for Dijkstra
-        self.dist = 1e9
-        self.prev = None
+        self.pathcost = int(1e5)
+        self.next_node = None
+
+    def __repr__(self):
+        if self.next_node is not None:
+            return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, totalcost:{self.pathcost}, next_node:{self.next_node.time_slice}]"
+            return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, totalcost:{self.pathcost}, next_node:{self.next_node.time_slice}]"
+        else:
+            return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, totalcost:{self.pathcost}, next_node:{self.next_node}]"
+            return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, totalcost:{self.pathcost}, next_node:{self.next_node}]"
 
     def energy(self):
         energy_top = (self.thermocline-1)*M_LAYER * 4187 * self.top_temp
@@ -35,6 +43,9 @@ class Edge():
         self.head = head
         self.cost = cost
 
+    def __repr__(self):
+        return f"Edge: {self.tail} --cost:{round(self.cost,1)}--> {self.head}"
+
 
 class Graph():
     def __init__(self, current_state):
@@ -45,12 +56,13 @@ class Graph():
         self.list_storage_energy = []
         self.list_elec_prices = []
         self.list_load = []
+        self.best_edge = {}
 
     def get_forecasts(self):
         self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 11.08, 4.49, 1.52, 
                            0.74, 0.42, 0.71, 0.97, 2.45, 3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*3
-        self.oat = [-2]*HORIZON
-        self.load = [4]*HORIZON
+        self.oat = [-2]*HORIZON*2
+        self.load = [5]*HORIZON*2
 
     def COP(self, oat, ewt, lwt):
         return 2
@@ -60,10 +72,10 @@ class Graph():
         self.nodes = [Node(time_slice0, top_temp0, thermocline0)]
         self.nodes.extend([
             Node(time_slice, top_temp, 6) 
-            for time_slice in range(HORIZON) 
-            for top_temp in range(MIN_TOP_TEMP, MAX_TOP_TEMP) 
-            #for thermocline in range(1, NUM_LAYERS+1)
-            #if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
+            for time_slice in range(HORIZON+1) 
+            for top_temp in range(MIN_TOP_TEMP, MAX_TOP_TEMP+1) 
+            # for thermocline in range(1, NUM_LAYERS+1)
+            # if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
             ])
     
     def define_edges(self):
@@ -78,54 +90,75 @@ class Graph():
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
                         cop = self.COP(oat=self.oat[node1.time_slice], ewt=node1.top_temp-TEMP_LIFT, lwt=node2.top_temp)
                         elec_cost = self.elec_prices[node1.time_slice]
-                        cost = elec_cost * energy_from_HP / cop 
+                        cost = round(elec_cost * energy_from_HP / cop,2)
                         self.edges.append(Edge(node2,node1,cost))
-
+   
     def solve_dijkstra(self):
-        source_node = self.nodes[0]
-        source_node.dist = 0
-        self.nodes_unvisited = self.nodes.copy()
-        previous_percentage = -5
-        while self.nodes_unvisited:
-            # Find the unvisited node which is closest to the source
-            closest_node = min(self.nodes_unvisited, key=lambda x: x.dist)
-            if closest_node.dist == 1e9:
-                break
-            # For all unvisisted connected nodes, find their distance to the source through the current node
-            neighbours = [x.tail for x in self.edges if (x.head==closest_node and x.tail in self.nodes_unvisited)]
-            for n in neighbours:
-                e = [x for x in self.edges if x.tail==n and x.head==closest_node][0]
-                distance = closest_node.dist + e.cost
-                if distance < n.dist:
-                    n.dist = distance
-                    n.prev = closest_node
-            # Mark the current node as visited
-            self.nodes_unvisited.remove(closest_node)
-            # Print progress
-            percentage_progress = 100 - round(len(self.nodes_unvisited) / len(self.nodes) * 100)
-            if percentage_progress >= previous_percentage+5:
-                print(f"{percentage_progress}%...")
-                previous_percentage = percentage_progress
-        # Go through the shortest path
-        min_node = min((x for x in self.nodes if x.time_slice==HORIZON-1), key=lambda n: n.dist)
-        shortest_path = [self.nodes.index(min_node)]
-        while min_node != source_node:
-            energy_to_store = min_node.energy() - min_node.prev.energy()
-            energy_from_HP = energy_to_store + self.load[min_node.prev.time_slice]
+        
+        for node in [x for x in self.nodes if x.time_slice==HORIZON]:
+            node.pathcost = 0
+ 
+        # Moving backwards from the end of the horizon to current time 0
+        for h in range(1, HORIZON+1):
+            time_slice = HORIZON - h
+            
             if PRINT:
-                print(f"---- Time {min_node.prev.time_slice} to {min_node.time_slice} ----")
-                print(f"Elec price: {self.elec_prices[min_node.prev.time_slice]}")
-                print(f"Top temperature: {min_node.prev.top_temp} -> {min_node.top_temp}")
-                print(f"Thermocline: {min_node.prev.thermocline} -> {min_node.thermocline}")
-                print(f"Energy from HP: {round(energy_from_HP,2)}\n")
-            self.list_storage_energy = [min_node.energy()] + self.list_storage_energy
-            self.list_elec_prices = [self.elec_prices[min_node.prev.time_slice]] + self.list_elec_prices
-            self.list_load = [self.load[min_node.prev.time_slice]] + self.list_load
-            self.list_hp_energy = [round(energy_from_HP,2)] + self.list_hp_energy
-            min_node = min_node.prev
-            shortest_path.append(self.nodes.index(min_node))
-        # Return the next node to visit
-        return self.nodes[shortest_path[-2]]
+                print('\n'+'-'*40)
+                print(f"Hour {time_slice}")
+                print('-'*40)
+
+            for node in [x for x in self.nodes if x.time_slice==time_slice]:
+
+                # For all edges arriving at this node, compute the total cost of taking it
+                available_edges = [e for e in self.edges if e.head==node]
+                total_costs = [e.tail.pathcost+e.cost for e in available_edges]                    
+
+                # Find which of the available edges has the minimal total cost
+                best_edge:Edge = available_edges[total_costs.index(min(total_costs))]
+                self.best_edge[node] = best_edge
+
+                # Update the current node with the right dist
+                node.pathcost = round(min(total_costs),2)
+                node.next_node = best_edge.tail
+
+                if PRINT: 
+                    print(f"\nWays to get to {node}:")
+                    for edge in available_edges:
+                        print(f"- {edge}")
+                    print(f"The best edge is {best_edge}")
+                    print(f"The best way to get to {node} is through {node.next_node}")
+
+        print("")
+        checking = self.nodes[0]
+        print(checking)
+        while checking.next_node is not None:
+            print(checking.next_node)
+            checking = checking.next_node
+        print("")
+
+        # # Go through the shortest path
+        # min_node = min((x for x in self.nodes if x.time_slice==HORIZON-1), key=lambda n: n.pathcost)
+        # shortest_path = [self.nodes.index(min_node)]
+        # print(min_node.time_slice)
+        # print(min_node.next_node.time_slice)
+        # while min_node != self.nodes[0]:
+        #     print(min_node)
+        #     energy_to_store = min_node.energy() - min_node.next_node.energy()
+        #     energy_from_HP = energy_to_store + self.load[min_node.next_node.time_slice]
+        #     if PRINT:
+        #         print(f"---- Time {min_node.next_node.time_slice} to {min_node.time_slice} ----")
+        #         print(f"Elec price: {self.elec_prices[min_node.next_node.time_slice]}")
+        #         print(f"Top temperature: {min_node.next_node.top_temp} -> {min_node.top_temp}")
+        #         print(f"Thermocline: {min_node.next_node.thermocline} -> {min_node.thermocline}")
+        #         print(f"Energy from HP: {round(energy_from_HP,2)}\n")
+        #     self.list_storage_energy = [min_node.energy()] + self.list_storage_energy
+        #     self.list_elec_prices = [self.elec_prices[min_node.next_node.time_slice]] + self.list_elec_prices
+        #     self.list_load = [self.load[min_node.next_node.time_slice]] + self.list_load
+        #     self.list_hp_energy = [round(energy_from_HP,2)] + self.list_hp_energy
+        #     min_node = min_node.next_node
+        #     shortest_path.append(self.nodes.index(min_node))
+        # # Return the next node to visit
+        # return self.nodes[shortest_path[-2]]
     
     def plot(self):
         min_energy = Node(0,MIN_TOP_TEMP,1).energy()
@@ -152,10 +185,8 @@ class Graph():
         plt.show()
 
 
-g = Graph(current_state=[0,51,1])
+g = Graph(current_state=[0,81,6])
 
 start_time = time.time()
 next_node = g.solve_dijkstra()
 print(f"Dijkstra ran in {round(time.time()-start_time,2)} seconds.")
-
-g.plot()
