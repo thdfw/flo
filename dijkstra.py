@@ -1,7 +1,7 @@
 import time
 import matplotlib.pyplot as plt
 
-HORIZON = 24 # hours
+HORIZON = 48 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
 MIN_TOP_TEMP = 50 # C
@@ -83,7 +83,7 @@ class Graph():
             for node1 in [x for x in self.nodes if x.time_slice==time]:
                 for node2 in [x for x in self.nodes if x.time_slice==time+1]:
 
-                    energy_to_store = node2.energy() - node1.energy()
+                    energy_to_store = int(node2.energy() - node1.energy())
                     energy_from_HP = energy_to_store + self.load[node1.time_slice]
 
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
@@ -166,9 +166,6 @@ class Graph():
             print(node_i)
 
     def plot(self):
-        # print("")
-        # print(self.list_hp_energy)
-        # print("")
         min_energy = Node(0,MIN_TOP_TEMP,1).energy()
         max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
