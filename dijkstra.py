@@ -21,16 +21,7 @@ class Node():
         self.next_node = None
 
     def __repr__(self):
-        if self.next_node is not None:
-            return (
-                f"""Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, 
-                totalcost:{self.pathcost}, next_node_time:{self.next_node.time_slice}]"""
-            )
-        else:
-            return (
-                f"""Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, 
-                totalcost:{self.pathcost}, next_node:{self.next_node}]"""
-            )
+        return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}]"
 
     def energy(self):
         energy_top = (self.thermocline-1)*M_LAYER * 4187 * self.top_temp
@@ -141,7 +132,7 @@ class Graph():
             node_i = node_i.next_node
         self.list_storage_energy.append(node_i.energy())
 
-        print(f"Done in {round(time.time()-start_time)} seconds.")
+        print(f"Done in {round(time.time()-start_time)} seconds.\n")
         return
     
     def print(self):
