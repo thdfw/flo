@@ -1,14 +1,14 @@
 import time
 import matplotlib.pyplot as plt
 
-HORIZON = 48 # hours
+HORIZON = 24 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
 MIN_TOP_TEMP = 50 # C
 MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11 # C
+TEMP_DROP = 11 # C
 NUM_LAYERS = 12
-PRINT = False
 
 
 class Node():
@@ -109,7 +109,7 @@ class Graph():
                             if node2.top_temp==node1.top_temp and node2.thermocline<node1.thermocline:
                                 self.edges.append(Edge(node2,node1,cost))
                             # Option 2
-                            if node2.top_temp==node1.top_temp-TEMP_LIFT:
+                            if node2.top_temp==node1.top_temp-TEMP_DROP:
                                 self.edges.append(Edge(node2,node1,cost))
 
                         # DONT TOUCH the storage
@@ -139,10 +139,21 @@ class Graph():
                 # Find which of the available edges has the minimal total cost
                 best_edge = available_edges[total_costs.index(min(total_costs))]
 
-                # Update the current node with the right dist
+                # Update the current node accordingly
                 node.pathcost = round(min(total_costs),2)
                 node.next_node = best_edge.tail
 
+        print(f"Done in {round(time.time()-start_time)} seconds.\n")
+        return
+    
+    def print(self):
+        node_i = self.source_node
+        print(node_i)
+        while node_i.next_node is not None:
+            node_i = node_i.next_node
+            print(node_i)
+
+    def plot(self):
         # Go through the shortest path
         node_i = self.source_node
         while node_i.next_node is not None:
@@ -156,18 +167,7 @@ class Graph():
             self.list_toptemps.append(node_i.top_temp)
             node_i = node_i.next_node
         self.list_storage_energy.append(node_i.energy())
-
-        print(f"Done in {round(time.time()-start_time)} seconds.\n")
-        return
-    
-    def print(self):
-        node_i = self.source_node
-        print(node_i)
-        while node_i.next_node is not None:
-            node_i = node_i.next_node
-            print(node_i)
-
-    def plot(self):
+        # Plot the results
         min_energy = Node(0,MIN_TOP_TEMP,1).energy()
         max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
