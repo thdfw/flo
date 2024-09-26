@@ -1,12 +1,12 @@
 import time
 import matplotlib.pyplot as plt
 
-HORIZON = 48 # hours
+HORIZON = 24 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
 MIN_TOP_TEMP = 50 # C
 MAX_TOP_TEMP = 85 # C
-TEMP_LIFT = 11.11 # C
+TEMP_LIFT = 11 # C
 NUM_LAYERS = 12
 PRINT = False
 
@@ -53,7 +53,7 @@ class Graph():
         self.list_storage_energy = []
         self.list_elec_prices = []
         self.list_load = []
-        self.best_edge = {}
+        self.list_thermoclines = []
         print(f"Done in {round(time.time()-start_time)} seconds.\n")
 
     def get_forecasts(self):
@@ -87,10 +87,33 @@ class Graph():
                     energy_from_HP = energy_to_store + self.load[node1.time_slice]
 
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
+                        
+                        # Compute the cost
                         cop = self.COP(oat=self.oat[node1.time_slice], ewt=node1.top_temp-TEMP_LIFT, lwt=node2.top_temp)
                         elec_cost = self.elec_prices[node1.time_slice]
                         cost = round(elec_cost * energy_from_HP / cop,2)
-                        self.edges.append(Edge(node2,node1,cost))
+
+                        # CHARGING the storage
+                        if energy_to_store > 0:
+                            # Option 1
+                            if node2.top_temp==node1.top_temp and node2.thermocline>node1.thermocline:
+                                self.edges.append(Edge(node2,node1,cost))
+                            # Option 2
+                            if node2.top_temp==node1.top_temp+TEMP_LIFT:
+                                self.edges.append(Edge(node2,node1,cost))
+
+                        # DISCHARGING the storage
+                        elif energy_to_store < 0:
+                            # Option 1
+                            if node2.top_temp==node1.top_temp and node2.thermocline<node1.thermocline:
+                                self.edges.append(Edge(node2,node1,cost))
+                            # Option 2
+                            if node2.top_temp==node1.top_temp-TEMP_LIFT:
+                                self.edges.append(Edge(node2,node1,cost))
+
+                        # DONT TOUCH the storage
+                        elif energy_to_store == 0 and node2.top_temp==node1.top_temp and node2.thermocline==node1.thermocline:
+                            self.edges.append(Edge(node2,node1,cost))
    
     def solve_dijkstra(self):
         print("Solving Dijkstra...")
@@ -113,8 +136,7 @@ class Graph():
                 total_costs = [e.tail.pathcost+e.cost for e in available_edges]                    
 
                 # Find which of the available edges has the minimal total cost
-                best_edge:Edge = available_edges[total_costs.index(min(total_costs))]
-                self.best_edge[node] = best_edge
+                best_edge = available_edges[total_costs.index(min(total_costs))]
 
                 # Update the current node with the right dist
                 node.pathcost = round(min(total_costs),2)
@@ -129,6 +151,7 @@ class Graph():
             self.list_elec_prices.append(self.elec_prices[node_i.time_slice])
             self.list_load.append(self.load[node_i.time_slice])
             self.list_hp_energy.append(round(energy_from_HP,2))
+            self.list_thermoclines.append(node_i.thermocline)
             node_i = node_i.next_node
         self.list_storage_energy.append(node_i.energy())
 
@@ -143,6 +166,9 @@ class Graph():
             print(node_i)
 
     def plot(self):
+        # print("")
+        # print(self.list_hp_energy)
+        # print("")
         min_energy = Node(0,MIN_TOP_TEMP,1).energy()
         max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
@@ -157,7 +183,12 @@ class Graph():
         ax2.step(time_list, self.list_elec_prices+[self.list_elec_prices[-1]], where='post', color='gray', alpha=0.6, label='Elec price')
         ax2.set_ylabel('Electricity price [cts/kWh]')
         ax2.legend(loc='upper right')
-        ax[1].plot(time_list, soc_list, color='tab:orange', alpha=0.6)
+        ax[1].plot(time_list, soc_list, color='tab:orange', alpha=0.6, label='SoC')
+        #ax3 = ax[1].twinx()
+        #ax3.plot(time_list, self.list_thermoclines+[self.list_thermoclines[-1]], color='tab:green', alpha=0.5, label='Thermocline')
+        #ax3.legend(loc='upper right')
+        ax[1].legend(loc='upper left')
+        ax[1].set_ylim([-1,101])
         ax[1].set_ylabel('SOC [%]')
         ax[1].set_xlabel('Time [hours]')
         if len(time_list)<50 and len(time_list)>10:
@@ -165,7 +196,7 @@ class Graph():
         plt.show()
 
 
-g = Graph(current_state=[0,51,6])
+g = Graph(current_state=[0,50,6])
 g.solve_dijkstra()
 g.print()
 g.plot()
