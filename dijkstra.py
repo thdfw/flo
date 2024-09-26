@@ -1,7 +1,7 @@
 import time
 import matplotlib.pyplot as plt
 
-HORIZON = 24 # hours
+HORIZON = 48 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
 MIN_TOP_TEMP = 50 # C
@@ -145,17 +145,11 @@ class Graph():
 
         print(f"Done in {round(time.time()-start_time)} seconds.\n")
         return
-    
-    def print(self):
-        node_i = self.source_node
-        print(node_i)
-        while node_i.next_node is not None:
-            node_i = node_i.next_node
-            print(node_i)
 
-    def plot(self):
+    def plot(self, print_nodes:bool):
         # Go through the shortest path
         node_i = self.source_node
+        if print_nodes: print(node_i)
         while node_i.next_node is not None:
             energy_to_store = node_i.next_node.energy() - node_i.energy()
             energy_from_HP = energy_to_store + self.load[node_i.time_slice]
@@ -166,6 +160,7 @@ class Graph():
             self.list_thermoclines.append(node_i.thermocline)
             self.list_toptemps.append(node_i.top_temp)
             node_i = node_i.next_node
+            if print_nodes: print(node_i)
         self.list_storage_energy.append(node_i.energy())
         # Plot the results
         min_energy = Node(0,MIN_TOP_TEMP,1).energy()
@@ -203,5 +198,4 @@ class Graph():
 
 g = Graph(current_state=[0,50,6])
 g.solve_dijkstra()
-g.print()
-g.plot()
+g.plot(print_nodes=True)
