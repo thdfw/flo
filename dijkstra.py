@@ -78,7 +78,6 @@ class Graph():
             t = t - TEMP_LIFT
             allowed_top_slice.append(t)
         allowed_top_slice = sorted(allowed_top_slice)
-        print(allowed_top_slice)
 
         self.nodes.extend([
             Node(time_slice, top_temp, thermocline) 
@@ -185,7 +184,7 @@ class Graph():
         max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
         time_list = list(range(len(soc_list)))
-        fig, ax = plt.subplots(3,1, sharex=True, figsize=(10,8))
+        fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
         # First plot
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
@@ -196,10 +195,6 @@ class Graph():
         ax2.step(time_list, self.list_elec_prices+[self.list_elec_prices[-1]], where='post', color='gray', alpha=0.6, label='Elec price')
         ax2.set_ylabel('Electricity price [cts/kWh]')
         ax2.legend(loc='upper right')
-        # Second plot
-        ax[1].plot(time_list, soc_list, color='tab:orange', alpha=0.6, label='SoC')
-        ax[1].set_ylim([-1,101])
-        ax[1].set_ylabel('SOC [%]')
         if len(time_list)<50 and len(time_list)>10:
             ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
         # Third plot
@@ -207,20 +202,22 @@ class Graph():
         cmap = matplotlib.colormaps['Reds']
         inverse_list_thermoclines = [12-x+1 for x in self.list_thermoclines]
         bottom_bar_colors = [cmap(norm(value-TEMP_LIFT)) for value in self.list_toptemps]
-        ax[2].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
+        
+        ax3 = ax[1].twinx()
+        ax[1].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
         top_part = [12-x if x<12 else 0 for x in inverse_list_thermoclines]
         top_bar_colors = [cmap(norm(value)) for value in self.list_toptemps]
-        ax[2].bar(time_list, top_part, bottom=inverse_list_thermoclines, color=top_bar_colors, alpha=0.7)
-        ax[2].set_ylim([0, NUM_LAYERS])
-        ax[2].set_yticks([])
-        ax[2].set_xlabel('Time [hours]')
-        ax[2].set_ylabel('Storage state')
-        # ax3 = ax[2].twinx()
-        # ax3.set_ylim([-1,101])
-        # ax3.set_ylabel('SOC [%]')
-        # ax3.plot(time_list, soc_list, color='black', alpha=0.5, linestyle='dashed', label='SoC')
+        ax[1].bar(time_list, top_part, bottom=inverse_list_thermoclines, color=top_bar_colors, alpha=0.7)
+        ax[1].set_ylim([0, NUM_LAYERS])
+        ax[1].set_yticks([])
+        ax[1].set_xlabel('Time [hours]')
+        ax[1].set_ylabel('Storage state')
+        ax3.plot(time_list, soc_list, color='black', alpha=0.4, label='SoC')
+        ax3.set_ylim([-1,101])
+        ax3.set_ylabel('SOC [%]')
+
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.02, pad=0.1, alpha=0.7)
+        cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.025, pad=0.15, alpha=0.7)
         cbar.set_label('Temperature [C]')
         plt.show()
 
