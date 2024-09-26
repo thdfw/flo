@@ -1,10 +1,10 @@
 import time
 import matplotlib.pyplot as plt
 
-HORIZON = 5 # hours
+HORIZON = 48 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
-MIN_TOP_TEMP = 80 # C
+MIN_TOP_TEMP = 50 # C
 MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11.11 # C
 NUM_LAYERS = 12
@@ -62,7 +62,7 @@ class Graph():
         self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 11.08, 4.49, 1.52, 
                            0.74, 0.42, 0.71, 0.97, 2.45, 3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*3
         self.oat = [-2]*HORIZON*2
-        self.load = [5]*HORIZON*2
+        self.load = [4]*HORIZON*2
 
     def COP(self, oat, ewt, lwt):
         return 2
@@ -185,7 +185,7 @@ class Graph():
         plt.show()
 
 
-g = Graph(current_state=[0,81,6])
+g = Graph(current_state=[0,51,6])
 
 start_time = time.time()
 next_node = g.solve_dijkstra()
