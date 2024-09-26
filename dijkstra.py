@@ -22,9 +22,15 @@ class Node():
 
     def __repr__(self):
         if self.next_node is not None:
-            return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, totalcost:{self.pathcost}, next_node:{self.next_node.time_slice}]"
+            return (
+                f"""Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, 
+                totalcost:{self.pathcost}, next_node_time:{self.next_node.time_slice}]"""
+            )
         else:
-            return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, totalcost:{self.pathcost}, next_node:{self.next_node}]"
+            return (
+                f"""Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, 
+                totalcost:{self.pathcost}, next_node:{self.next_node}]"""
+            )
 
     def energy(self):
         energy_top = (self.thermocline-1)*M_LAYER * 4187 * self.top_temp
@@ -47,6 +53,8 @@ class Edge():
 
 class Graph():
     def __init__(self, current_state):
+        print("\nSetting up the graph...")
+        start_time = time.time()
         self.get_forecasts()
         self.define_nodes(current_state)
         self.define_edges()
@@ -55,6 +63,7 @@ class Graph():
         self.list_elec_prices = []
         self.list_load = []
         self.best_edge = {}
+        print(f"Done in {round(time.time()-start_time)} seconds.\n")
 
     def get_forecasts(self):
         self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 11.08, 4.49, 1.52, 
@@ -70,11 +79,11 @@ class Graph():
         self.source_node = Node(time_slice0, top_temp0, thermocline0)
         self.nodes = [self.source_node]
         self.nodes.extend([
-            Node(time_slice, top_temp, 6) 
+            Node(time_slice, top_temp, thermocline) 
             for time_slice in range(HORIZON+1) 
             for top_temp in range(MIN_TOP_TEMP, MAX_TOP_TEMP+1) 
-            # for thermocline in range(1, NUM_LAYERS+1)
-            # if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
+            for thermocline in range(1, NUM_LAYERS+1)
+            if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
             ])
     
     def define_edges(self):
@@ -93,24 +102,22 @@ class Graph():
                         self.edges.append(Edge(node2,node1,cost))
    
     def solve_dijkstra(self):
-
+        print("Solving Dijkstra...")
         start_time = time.time()
-        
+
+        # Initialise the nodes in the last time slice with a path cost of 0
         for node in [x for x in self.nodes if x.time_slice==HORIZON]:
             node.pathcost = 0
- 
+
         # Moving backwards from the end of the horizon to current time 0
         for h in range(1, HORIZON+1):
             time_slice = HORIZON - h
-            
-            if PRINT:
-                print('\n'+'-'*40)
-                print(f"Hour {time_slice}")
-                print('-'*40)
+            print(f"- Working on hour {time_slice}...")
 
+            # For all nodes in the current time slice
             for node in [x for x in self.nodes if x.time_slice==time_slice]:
 
-                # For all edges arriving at this node, compute the total cost of taking it
+                # For all edges arriving at this node
                 available_edges = [e for e in self.edges if e.head==node]
                 total_costs = [e.tail.pathcost+e.cost for e in available_edges]                    
 
@@ -122,13 +129,6 @@ class Graph():
                 node.pathcost = round(min(total_costs),2)
                 node.next_node = best_edge.tail
 
-                if PRINT: 
-                    print(f"\nWays to get to {node}:")
-                    for edge in available_edges:
-                        print(f"- {edge}")
-                    print(f"The best edge is {best_edge}")
-                    print(f"The best way to get to {node} is through {node.next_node}")
-
         # Go through the shortest path
         node_i = self.source_node
         while node_i.next_node is not None:
@@ -139,16 +139,22 @@ class Graph():
             self.list_load.append(self.load[node_i.time_slice])
             self.list_hp_energy.append(round(energy_from_HP,2))
             node_i = node_i.next_node
+        self.list_storage_energy.append(node_i.energy())
 
-        print(f"Dijkstra ran in {round(time.time()-start_time,2)} seconds.")
+        print(f"Done in {round(time.time()-start_time)} seconds.")
         return
     
+    def print(self):
+        node_i = self.source_node
+        print(node_i)
+        while node_i.next_node is not None:
+            node_i = node_i.next_node
+            print(node_i)
+
     def plot(self):
         min_energy = Node(0,MIN_TOP_TEMP,1).energy()
         max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
-        initial_energy = self.nodes[0].energy()
-        list_storage_energy = [initial_energy] + self.list_storage_energy
-        soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in list_storage_energy]
+        soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
@@ -168,6 +174,7 @@ class Graph():
         plt.show()
 
 
-g = Graph(current_state=[0,51,1])
+g = Graph(current_state=[0,51,6])
 g.solve_dijkstra()
+g.print()
 g.plot()
