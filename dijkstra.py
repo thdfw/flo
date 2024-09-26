@@ -1,5 +1,7 @@
 import time
 import matplotlib.pyplot as plt
+import matplotlib
+from matplotlib.colors import Normalize
 
 HORIZON = 48 # hours
 HP_POWER = 12 # kW
@@ -20,7 +22,7 @@ class Node():
         self.next_node = None
 
     def __repr__(self):
-        return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}]"
+        return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, pathcost:{self.pathcost}]"
 
     def energy(self):
         energy_top = (self.thermocline-1)*M_LAYER * 4187 * self.top_temp
@@ -64,10 +66,24 @@ class Graph():
         time_slice0, top_temp0, thermocline0 = current_state
         self.source_node = Node(time_slice0, top_temp0, thermocline0)
         self.nodes = [self.source_node]
+
+        # Find all the allowed top temperatures
+        allowed_top_slice = [top_temp0]
+        t = top_temp0
+        while t+TEMP_LIFT <= MAX_TOP_TEMP:
+            t = t + TEMP_LIFT
+            allowed_top_slice.append(t)
+        t = top_temp0
+        while t-TEMP_LIFT >= MIN_TOP_TEMP:
+            t = t - TEMP_LIFT
+            allowed_top_slice.append(t)
+        allowed_top_slice = sorted(allowed_top_slice)
+        print(allowed_top_slice)
+
         self.nodes.extend([
             Node(time_slice, top_temp, thermocline) 
             for time_slice in range(HORIZON+1) 
-            for top_temp in range(MIN_TOP_TEMP, MAX_TOP_TEMP+1) 
+            for top_temp in allowed_top_slice 
             for thermocline in range(1, NUM_LAYERS+1)
             if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
             ])
@@ -121,7 +137,7 @@ class Graph():
         # Moving backwards from the end of the horizon to current time 0
         for h in range(1, HORIZON+1):
             time_slice = HORIZON - h
-            print(f"- Working on hour {time_slice}...")
+            # print(f"- Working on hour {time_slice}...")
 
             # For all nodes in the current time slice
             for node in [x for x in self.nodes if x.time_slice==time_slice]:
@@ -162,12 +178,15 @@ class Graph():
             node_i = node_i.next_node
             if print_nodes: print(node_i)
         self.list_storage_energy.append(node_i.energy())
+        self.list_thermoclines.append(node_i.thermocline)
+        self.list_toptemps.append(node_i.top_temp)
         # Plot the results
         min_energy = Node(0,MIN_TOP_TEMP,1).energy()
         max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(3,1, sharex=True, figsize=(10,8))
+        # First plot
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
         ax[0].set_ylabel('Heat [kWh]')
@@ -177,25 +196,35 @@ class Graph():
         ax2.step(time_list, self.list_elec_prices+[self.list_elec_prices[-1]], where='post', color='gray', alpha=0.6, label='Elec price')
         ax2.set_ylabel('Electricity price [cts/kWh]')
         ax2.legend(loc='upper right')
+        # Second plot
         ax[1].plot(time_list, soc_list, color='tab:orange', alpha=0.6, label='SoC')
-        ax[2].plot(time_list, self.list_toptemps+[self.list_toptemps[-1]], color='tab:purple', alpha=0.7, label='Top temperature')
-        ax[2].set_ylim([MIN_TOP_TEMP-1,MAX_TOP_TEMP+1])
-        ax3 = ax[2].twinx()
-        ax3.plot(time_list, self.list_thermoclines+[self.list_thermoclines[-1]], color='tab:green', alpha=0.6, label='Thermocline')
-        ax3.legend(loc='upper right')
-        ax3.set_ylim([0,NUM_LAYERS+1])
-        ax3.set_yticks(range(1,NUM_LAYERS+1,2))
-        ax3.set_ylabel('Tank layer')
-        ax[2].set_ylabel('Temperature [C]')
-        ax[2].legend(loc='upper left')
         ax[1].set_ylim([-1,101])
         ax[1].set_ylabel('SOC [%]')
-        ax[1].set_xlabel('Time [hours]')
         if len(time_list)<50 and len(time_list)>10:
             ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
+        # Third plot
+        norm = Normalize(vmin=30, vmax=90)
+        cmap = matplotlib.colormaps['Reds']
+        inverse_list_thermoclines = [12-x+1 for x in self.list_thermoclines]
+        bottom_bar_colors = [cmap(norm(value-TEMP_LIFT)) for value in self.list_toptemps]
+        ax[2].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
+        top_part = [12-x if x<12 else 0 for x in inverse_list_thermoclines]
+        top_bar_colors = [cmap(norm(value)) for value in self.list_toptemps]
+        ax[2].bar(time_list, top_part, bottom=inverse_list_thermoclines, color=top_bar_colors, alpha=0.7)
+        ax[2].set_ylim([0, NUM_LAYERS])
+        ax[2].set_yticks([])
+        ax[2].set_xlabel('Time [hours]')
+        ax[2].set_ylabel('Storage state')
+        # ax3 = ax[2].twinx()
+        # ax3.set_ylim([-1,101])
+        # ax3.set_ylabel('SOC [%]')
+        # ax3.plot(time_list, soc_list, color='black', alpha=0.5, linestyle='dashed', label='SoC')
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.02, pad=0.1, alpha=0.7)
+        cbar.set_label('Temperature [C]')
         plt.show()
 
 
 g = Graph(current_state=[0,50,6])
 g.solve_dijkstra()
-g.plot(print_nodes=True)
+g.plot(print_nodes=False)
