@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.colors import Normalize
 
-HORIZON = 48 # hours
+HORIZON = 24*2 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
 MIN_TOP_TEMP = 50 # C
@@ -55,9 +55,9 @@ class Graph():
     def get_forecasts(self):
         self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 
                             11.08, 4.49, 1.52, 0.74, 0.42, 0.71, 0.97, 2.45, 
-                            3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*3
-        self.load = [4]*HORIZON*3
-        self.oat = [-2]*HORIZON*3
+                            3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*30
+        self.load = [4]*HORIZON*30
+        self.oat = [-2]*HORIZON*30
 
     def COP(self, oat, ewt, lwt):
         return 2
@@ -166,7 +166,7 @@ class Graph():
         node_i = self.source_node
         if print_nodes: print(node_i)
         while node_i.next_node is not None:
-            energy_to_store = node_i.next_node.energy() - node_i.energy()
+            energy_to_store = int(node_i.next_node.energy() - node_i.energy())
             energy_from_HP = energy_to_store + self.load[node_i.time_slice]
             self.list_storage_energy.append(node_i.energy())
             self.list_elec_prices.append(self.elec_prices[node_i.time_slice])
