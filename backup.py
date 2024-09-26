@@ -1,14 +1,14 @@
 import time
 import matplotlib.pyplot as plt
 
-HORIZON = 48 # hours
+HORIZON = 49 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
 MIN_TOP_TEMP = 50 # C
 MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11.11 # C
 NUM_LAYERS = 12
-PRINT = True
+PRINT = False
 
 
 class Node():
@@ -19,9 +19,6 @@ class Node():
         # Initial values for Dijkstra
         self.dist = 1e9
         self.prev = None
-
-    def __repr__(self):
-        return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}]"
 
     def energy(self):
         energy_top = (self.thermocline-1)*M_LAYER * 4187 * self.top_temp
@@ -38,9 +35,6 @@ class Edge():
         self.head = head
         self.cost = cost
 
-    def __repr__(self):
-        return f"Edge: {self.tail} --cost:{round(self.cost,1)}--> {self.head}"
-
 
 class Graph():
     def __init__(self, current_state):
@@ -51,13 +45,12 @@ class Graph():
         self.list_storage_energy = []
         self.list_elec_prices = []
         self.list_load = []
-        self.best_edge = {}
 
     def get_forecasts(self):
         self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 11.08, 4.49, 1.52, 
                            0.74, 0.42, 0.71, 0.97, 2.45, 3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*3
         self.oat = [-2]*HORIZON
-        self.load = [4]*HORIZON*2
+        self.load = [4]*HORIZON
 
     def COP(self, oat, ewt, lwt):
         return 2
@@ -68,9 +61,9 @@ class Graph():
         self.nodes.extend([
             Node(time_slice, top_temp, 6) 
             for time_slice in range(HORIZON+1) 
-            for top_temp in range(MIN_TOP_TEMP, MAX_TOP_TEMP) 
-            # for thermocline in range(1, NUM_LAYERS+1)
-            # if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
+            for top_temp in range(MIN_TOP_TEMP, MAX_TOP_TEMP+1) 
+            #for thermocline in range(1, NUM_LAYERS+1)
+            #if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
             ])
     
     def define_edges(self):
@@ -88,70 +81,8 @@ class Graph():
                         cost = elec_cost * energy_from_HP / cop 
                         self.edges.append(Edge(node2,node1,cost))
 
-    # ----------------------
-    # GW DIJKSTRA
-    # Finds the shortest path from any node in the last time step to the source
-    # ----------------------
-   
     def solve_dijkstra(self):
-        
-        for node in [x for x in self.nodes if x.time_slice==HORIZON]:
-            node.dist = 0
-        
-        # Moving backwards from the end of the horizon to current time 0
-        for h in range(1, HORIZON+1):
-            time_slice = HORIZON - h
-            print(time_slice)
-            
-            for node in [x for x in self.nodes if x.time_slice==time_slice]:
-
-                # For all edges arriving at this node, compute the total cost of taking it
-                available_edges = [e for e in self.edges if e.head==node]
-                total_costs = [e.tail.dist+e.cost for e in available_edges]
-
-                # Find which of the available edges has the minimal total cost
-                best_edge:Edge = available_edges[total_costs.index(min(total_costs))]
-                self.best_edge[node] = best_edge
-
-                # Update the current node with the right dist
-                node.dist = min(total_costs)
-                node.prev = best_edge.tail
-
-        # Go through the shortest path
-        min_node = min((x for x in self.nodes if x.time_slice==HORIZON-1), key=lambda n: n.dist)
-        shortest_path = [self.nodes.index(min_node)]
-        print(min_node.time_slice)
-        print(min_node.prev.time_slice)
-        while min_node != self.nodes[0]:
-            print(min_node)
-            energy_to_store = min_node.energy() - min_node.prev.energy()
-            energy_from_HP = energy_to_store + self.load[min_node.prev.time_slice]
-            if PRINT:
-                print(f"---- Time {min_node.prev.time_slice} to {min_node.time_slice} ----")
-                print(f"Elec price: {self.elec_prices[min_node.prev.time_slice]}")
-                print(f"Top temperature: {min_node.prev.top_temp} -> {min_node.top_temp}")
-                print(f"Thermocline: {min_node.prev.thermocline} -> {min_node.thermocline}")
-                print(f"Energy from HP: {round(energy_from_HP,2)}\n")
-            self.list_storage_energy = [min_node.energy()] + self.list_storage_energy
-            self.list_elec_prices = [self.elec_prices[min_node.prev.time_slice]] + self.list_elec_prices
-            self.list_load = [self.load[min_node.prev.time_slice]] + self.list_load
-            self.list_hp_energy = [round(energy_from_HP,2)] + self.list_hp_energy
-            min_node = min_node.prev
-            shortest_path.append(self.nodes.index(min_node))
-        # Return the next node to visit
-        return self.nodes[shortest_path[-2]]
-        
-
-        
-
-
-
-    # ----------------------
-    # WIKIPEDIA DIJKSTRA
-    # This finds the shortest path from any node in the graph to the source
-    # ----------------------
-
-    def solve_dijkstra_wikipedia(self):
+        start_time = time.time()
         source_node = self.nodes[0]
         source_node.dist = 0
         self.nodes_unvisited = self.nodes.copy()
@@ -194,8 +125,9 @@ class Graph():
             self.list_hp_energy = [round(energy_from_HP,2)] + self.list_hp_energy
             min_node = min_node.prev
             shortest_path.append(self.nodes.index(min_node))
-        # Return the next node to visit
-        return self.nodes[shortest_path[-2]]
+        print(f"Dijkstra ran in {round(time.time()-start_time,2)} seconds.")
+        # Save the next node to visit
+        self.next_node = self.nodes[shortest_path[-2]]
     
     def plot(self):
         min_energy = Node(0,MIN_TOP_TEMP,1).energy()
@@ -223,10 +155,5 @@ class Graph():
 
 
 g = Graph(current_state=[0,51,1])
-print("")
-print(g.edges[0])
-print("")
-
-start_time = time.time()
-# next_node = g.solve_dijkstra()
-print(f"Dijkstra ran in {round(time.time()-start_time,2)} seconds.")
+g.solve_dijkstra()
+g.plot()
