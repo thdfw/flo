@@ -62,6 +62,8 @@ class Graph():
     def get_forecasts(self):
         df = get_data(self.start_time, HORIZON)
         self.elec_prices = list(df.elec_prices)
+        # self.elec_prices = list(df.jan24_prices)
+        # self.elec_prices = list(df.jul24_prices)
         self.load = list(df.load)
         self.oat = list(df.oat)
         self.load = [x*0.7 for x in self.load]
@@ -189,8 +191,8 @@ class Graph():
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
-        end_time = self.start_time.add(hours=HORIZON).format('YYYY-MM-DD HH:mm:ss')
-        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm:ss')} to {end_time}\nCost: {self.source_node.pathcost} $', fontsize=10)
+        end_time = self.start_time.add(hours=HORIZON).format('YYYY-MM-DD HH:mm')
+        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm')} to {end_time}\nCost: {self.source_node.pathcost} $', fontsize=10)
         # First plot
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
