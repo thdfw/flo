@@ -1,9 +1,14 @@
 import time
 import matplotlib.pyplot as plt
+import numpy as np
 import matplotlib
 from matplotlib.colors import Normalize
+import pendulum.date
+from past_data import get_data
+from cop import COP, ceclius_to_fahrenheit
+import pendulum
 
-HORIZON = 24*2 # hours
+HORIZON = 24*7 # hours
 HP_POWER = 12 # kW
 M_LAYER = 113 # kg
 MIN_TOP_TEMP = 50 # C
@@ -44,27 +49,23 @@ class Edge():
 
 
 class Graph():
-    def __init__(self, current_state):
+    def __init__(self, start_state, start_time):
         print("\nSetting up the graph...")
-        start_time = time.time()
-        self.get_forecasts()
-        self.define_nodes(current_state)
+        timer = time.time()
+        self.get_forecasts(start_time)
+        self.define_nodes(start_state)
         self.define_edges()
-        print(f"Done in {round(time.time()-start_time)} seconds.\n")
+        print(f"Done in {round(time.time()-timer)} seconds.\n")
 
-    def get_forecasts(self):
-        self.elec_prices = [7.92, 6.63, 6.31, 6.79, 8.01, 11.58, 19.38, 21.59, 
-                            11.08, 4.49, 1.52, 0.74, 0.42, 0.71, 0.97, 2.45, 
-                            3.79, 9.56, 20.51, 28.26, 23.49, 18.42, 13.23, 10.17]*30
-        self.load = [4]*HORIZON*30
-        self.oat = [-2]*HORIZON*30
+    def get_forecasts(self, start_time):
+        df = get_data(start_time, HORIZON)
+        self.elec_prices = list(df.elec_prices)
+        self.load = list(df.load)
+        self.oat = list(df.oat)
 
-    def COP(self, oat, ewt, lwt):
-        return 2
-
-    def define_nodes(self, current_state):
-        time_slice0, top_temp0, thermocline0 = current_state
-        self.source_node = Node(time_slice0, top_temp0, thermocline0)
+    def define_nodes(self, start_state):
+        top_temp0, thermocline0 = start_state['top_temp'], start_state['thermocline']
+        self.source_node = Node(0, top_temp0, thermocline0)
         self.nodes = [self.source_node]
 
         # Find all the allowed top temperatures
@@ -84,46 +85,46 @@ class Graph():
             for time_slice in range(HORIZON+1) 
             for top_temp in allowed_top_slice 
             for thermocline in range(1, NUM_LAYERS+1)
-            if (time_slice, top_temp, thermocline) != (time_slice0, top_temp0, thermocline0)
+            if (time_slice, top_temp, thermocline) != (0, top_temp0, thermocline0)
             ])
     
     def define_edges(self):
         self.edges = []
         for time in range(HORIZON):
-            for node1 in [x for x in self.nodes if x.time_slice==time]:
-                for node2 in [x for x in self.nodes if x.time_slice==time+1]:
+            for node_now in [x for x in self.nodes if x.time_slice==time]:
+                for node_next in [x for x in self.nodes if x.time_slice==time+1]:
 
-                    energy_to_store = int(node2.energy() - node1.energy())
-                    energy_from_HP = energy_to_store + self.load[node1.time_slice]
+                    energy_to_store = int(node_next.energy() - node_now.energy())
+                    energy_from_HP = energy_to_store + self.load[node_now.time_slice]
 
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
                         
                         # Compute the cost
-                        cop = self.COP(oat=self.oat[node1.time_slice], ewt=node1.top_temp-TEMP_LIFT, lwt=node2.top_temp)
-                        elec_cost = self.elec_prices[node1.time_slice]
+                        cop = COP(oat=self.oat[node_now.time_slice], ewt=node_now.top_temp-TEMP_LIFT, lwt=node_next.top_temp)
+                        elec_cost = self.elec_prices[node_now.time_slice] / 1000
                         cost = round(elec_cost * energy_from_HP / cop,2)
 
                         # CHARGING the storage
                         if energy_to_store > 0:
                             # Option 1
-                            if node2.top_temp==node1.top_temp and node2.thermocline>node1.thermocline:
-                                self.edges.append(Edge(node2,node1,cost))
+                            if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
+                                self.edges.append(Edge(node_next,node_now,cost))
                             # Option 2
-                            if node2.top_temp==node1.top_temp+TEMP_LIFT:
-                                self.edges.append(Edge(node2,node1,cost))
+                            if node_next.top_temp==node_now.top_temp+TEMP_LIFT:
+                                self.edges.append(Edge(node_next,node_now,cost))
 
                         # DISCHARGING the storage
                         elif energy_to_store < 0:
                             # Option 1
-                            if node2.top_temp==node1.top_temp and node2.thermocline<node1.thermocline:
-                                self.edges.append(Edge(node2,node1,cost))
+                            if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
+                                self.edges.append(Edge(node_next,node_now,cost))
                             # Option 2
-                            if node2.top_temp==node1.top_temp-TEMP_DROP:
-                                self.edges.append(Edge(node2,node1,cost))
+                            if node_next.top_temp==node_now.top_temp-TEMP_DROP:
+                                self.edges.append(Edge(node_next,node_now,cost))
 
                         # DONT TOUCH the storage
-                        elif energy_to_store==0 and node2.top_temp==node1.top_temp and node2.thermocline==node1.thermocline:
-                            self.edges.append(Edge(node2,node1,cost))
+                        elif energy_to_store==0 and node_next.top_temp==node_now.top_temp and node_next.thermocline==node_now.thermocline:
+                            self.edges.append(Edge(node_next,node_now,cost))
    
     def solve_dijkstra(self):
         print("Solving Dijkstra...")
@@ -185,6 +186,7 @@ class Graph():
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
+        fig.suptitle(f'Cost: {self.source_node.pathcost} $', fontsize=10)
         # First plot
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
@@ -197,16 +199,16 @@ class Graph():
         ax2.legend(loc='upper right')
         if len(time_list)<50 and len(time_list)>10:
             ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
-        # Third plot
-        norm = Normalize(vmin=30, vmax=90)
+        # Second plot
+        norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-15), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP+5))
         cmap = matplotlib.colormaps['Reds']
         inverse_list_thermoclines = [12-x+1 for x in self.list_thermoclines]
-        bottom_bar_colors = [cmap(norm(value-TEMP_LIFT)) for value in self.list_toptemps]
-        
+        fahrenheit_toptemps = [ceclius_to_fahrenheit(x) for x in self.list_toptemps]
+        bottom_bar_colors = [cmap(norm(value-TEMP_LIFT)) for value in fahrenheit_toptemps]
         ax3 = ax[1].twinx()
         ax[1].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
         top_part = [12-x if x<12 else 0 for x in inverse_list_thermoclines]
-        top_bar_colors = [cmap(norm(value)) for value in self.list_toptemps]
+        top_bar_colors = [cmap(norm(value)) for value in fahrenheit_toptemps]
         ax[1].bar(time_list, top_part, bottom=inverse_list_thermoclines, color=top_bar_colors, alpha=0.7)
         ax[1].set_ylim([0, NUM_LAYERS])
         ax[1].set_yticks([])
@@ -215,13 +217,15 @@ class Graph():
         ax3.plot(time_list, soc_list, color='black', alpha=0.4, label='SoC')
         ax3.set_ylim([-1,101])
         ax3.set_ylabel('SOC [%]')
-
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.025, pad=0.15, alpha=0.7)
-        cbar.set_label('Temperature [C]')
+        cbar.set_label('Temperature [F]')
         plt.show()
 
 
-g = Graph(current_state=[0,50,6])
+time_now = pendulum.datetime(2022, 12, 1, 18, 2, 0, tz='America/New_York')
+state_now = {'top_temp':50, 'thermocline':6}
+
+g = Graph(state_now, time_now)
 g.solve_dijkstra()
 g.plot(print_nodes=False)
