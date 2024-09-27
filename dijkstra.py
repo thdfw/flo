@@ -8,9 +8,9 @@ from past_data import get_data
 from cop import COP, ceclius_to_fahrenheit
 import pendulum
 
-HORIZON = 24*7 # hours
+HORIZON = 24*2 # hours
 HP_POWER = 12 # kW
-M_LAYER = 113 # kg
+M_TANKS = 454.25*3 # kg
 MIN_TOP_TEMP = 50 # C
 MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11 # C
@@ -30,9 +30,10 @@ class Node():
         return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, pathcost:{self.pathcost}]"
 
     def energy(self):
-        energy_top = (self.thermocline-1)*M_LAYER * 4187 * self.top_temp
-        energy_bottom = (NUM_LAYERS-self.thermocline)*M_LAYER * 4187 * (self.top_temp-TEMP_LIFT)
-        energy_middle = M_LAYER*4187*(self.top_temp-TEMP_LIFT/2)
+        m_layer = M_TANKS / NUM_LAYERS
+        energy_top = (self.thermocline-1)*m_layer * 4187 * self.top_temp
+        energy_bottom = (NUM_LAYERS-self.thermocline)*m_layer * 4187 * (self.top_temp-TEMP_LIFT)
+        energy_middle = m_layer*4187*(self.top_temp-TEMP_LIFT/2)
         total_joules = energy_top + energy_bottom + energy_middle
         total_kWh = total_joules/3600/1000
         return round(total_kWh,2)
@@ -52,16 +53,18 @@ class Graph():
     def __init__(self, start_state, start_time):
         print("\nSetting up the graph...")
         timer = time.time()
-        self.get_forecasts(start_time)
+        self.start_time = start_time
+        self.get_forecasts()
         self.define_nodes(start_state)
         self.define_edges()
         print(f"Done in {round(time.time()-timer)} seconds.\n")
 
-    def get_forecasts(self, start_time):
-        df = get_data(start_time, HORIZON)
+    def get_forecasts(self):
+        df = get_data(self.start_time, HORIZON)
         self.elec_prices = list(df.elec_prices)
         self.load = list(df.load)
         self.oat = list(df.oat)
+        self.load = [x*0.7 for x in self.load]
 
     def define_nodes(self, start_state):
         top_temp0, thermocline0 = start_state['top_temp'], start_state['thermocline']
@@ -94,7 +97,7 @@ class Graph():
             for node_now in [x for x in self.nodes if x.time_slice==time]:
                 for node_next in [x for x in self.nodes if x.time_slice==time+1]:
 
-                    energy_to_store = int(node_next.energy() - node_now.energy())
+                    energy_to_store = node_next.energy() - node_now.energy() # int
                     energy_from_HP = energy_to_store + self.load[node_now.time_slice]
 
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
@@ -137,7 +140,7 @@ class Graph():
         # Moving backwards from the end of the horizon to current time 0
         for h in range(1, HORIZON+1):
             time_slice = HORIZON - h
-            # print(f"- Working on hour {time_slice}...")
+            print(f"- Working on hour {time_slice}...")
 
             # For all nodes in the current time slice
             for node in [x for x in self.nodes if x.time_slice==time_slice]:
@@ -167,7 +170,7 @@ class Graph():
         node_i = self.source_node
         if print_nodes: print(node_i)
         while node_i.next_node is not None:
-            energy_to_store = int(node_i.next_node.energy() - node_i.energy())
+            energy_to_store = node_i.next_node.energy() - node_i.energy() # int
             energy_from_HP = energy_to_store + self.load[node_i.time_slice]
             self.list_storage_energy.append(node_i.energy())
             self.list_elec_prices.append(self.elec_prices[node_i.time_slice])
@@ -186,12 +189,13 @@ class Graph():
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
-        fig.suptitle(f'Cost: {self.source_node.pathcost} $', fontsize=10)
+        end_time = self.start_time.add(hours=HORIZON).format('YYYY-MM-DD HH:mm:ss')
+        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm:ss')} to {end_time}\nCost: {self.source_node.pathcost} $', fontsize=10)
         # First plot
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
         ax[0].set_ylabel('Heat [kWh]')
-        ax[0].set_ylim([-1,20])
+        ax[0].set_ylim([-0.5,20])
         ax[0].legend(loc='upper left')
         ax2 = ax[0].twinx()
         ax2.step(time_list, self.list_elec_prices+[self.list_elec_prices[-1]], where='post', color='gray', alpha=0.6, label='Elec price')
@@ -200,14 +204,14 @@ class Graph():
         if len(time_list)<50 and len(time_list)>10:
             ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
         # Second plot
-        norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-15), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP+5))
+        norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-TEMP_LIFT), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP))
         cmap = matplotlib.colormaps['Reds']
-        inverse_list_thermoclines = [12-x+1 for x in self.list_thermoclines]
+        inverse_list_thermoclines = [NUM_LAYERS-x+1 for x in self.list_thermoclines]
         fahrenheit_toptemps = [ceclius_to_fahrenheit(x) for x in self.list_toptemps]
         bottom_bar_colors = [cmap(norm(value-TEMP_LIFT)) for value in fahrenheit_toptemps]
         ax3 = ax[1].twinx()
         ax[1].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
-        top_part = [12-x if x<12 else 0 for x in inverse_list_thermoclines]
+        top_part = [NUM_LAYERS-x if x<NUM_LAYERS else 0 for x in inverse_list_thermoclines]
         top_bar_colors = [cmap(norm(value)) for value in fahrenheit_toptemps]
         ax[1].bar(time_list, top_part, bottom=inverse_list_thermoclines, color=top_bar_colors, alpha=0.7)
         ax[1].set_ylim([0, NUM_LAYERS])
@@ -223,7 +227,7 @@ class Graph():
         plt.show()
 
 
-time_now = pendulum.datetime(2022, 12, 1, 18, 2, 0, tz='America/New_York')
+time_now = pendulum.datetime(2022, 12, 15, 18, 0, 0, tz='America/New_York')
 state_now = {'top_temp':50, 'thermocline':6}
 
 g = Graph(state_now, time_now)
