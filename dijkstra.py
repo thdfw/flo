@@ -1,22 +1,20 @@
 import time
-import matplotlib.pyplot as plt
-import numpy as np
 import matplotlib
+import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
-import pendulum.date
 from past_data import get_data
 from cop import COP, ceclius_to_fahrenheit
 import pendulum
 
-HORIZON = 24*2 # hours
+HORIZON = 2*24 # hours
 HP_POWER = 12 # kW
 M_TANKS = 454.25*3 # kg
 MIN_TOP_TEMP = 50 # C
 MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11 # C
 TEMP_DROP = 11 # C
-NUM_LAYERS = 12
-
+NUM_LAYERS = 1200
+ADD_MIN_MAX = True
 
 class Node():
     def __init__(self, time_slice:int, top_temp:float, thermocline:float):
@@ -62,8 +60,8 @@ class Graph():
     def get_forecasts(self):
         df = get_data(self.start_time, HORIZON)
         self.elec_prices = list(df.elec_prices)
-        # self.elec_prices = list(df.jan24_prices)
-        # self.elec_prices = list(df.jul24_prices)
+        self.elec_prices = list(df.jan24_prices)
+        #self.elec_prices = list(df.jul24_prices)
         self.load = list(df.load)
         self.oat = list(df.oat)
         self.load = [x*0.7 for x in self.load]
@@ -87,11 +85,55 @@ class Graph():
 
         self.nodes.extend([
             Node(time_slice, top_temp, thermocline) 
-            for time_slice in range(HORIZON+1) 
+            for time_slice in range(1,HORIZON+1) 
             for top_temp in allowed_top_slice 
-            for thermocline in range(1, NUM_LAYERS+1)
+            for thermocline in range(1, NUM_LAYERS+1, 100)
             if (time_slice, top_temp, thermocline) != (0, top_temp0, thermocline0)
             ])
+        
+        if ADD_MIN_MAX:
+            # Add the min and max nodes for each node in the first time steps
+            for h in range(4):
+                print(f"Hour {h}...")
+                for node in [x for x in self.nodes if x.time_slice==h]:
+                    
+                    # Discharging: find node that minimizes energy_from_hp
+                    thermoc = node.thermocline
+                    toptemp = node.top_temp
+                    while True:
+                        # If the thermocline has reached the top, time to change top temp and thermocline
+                        if thermoc==1:
+                            toptemp = toptemp-TEMP_DROP
+                            thermoc = NUM_LAYERS
+                        # Set up a new node with less energy
+                        node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                        energy_to_store = node_next.energy() - node.energy()
+                        # Stop if the storage is discharged by more than the amount of the load
+                        if energy_to_store + self.load[h] < 0:
+                                thermoc += 1
+                                break
+                        thermoc += -1
+                    min_node = Node(h+1, thermocline=thermoc, top_temp=node.top_temp)
+                    self.nodes.append(min_node)
+
+                    # Charging: find node that minimizes HP_POWER - energy_from_hp
+                    thermoc = node.thermocline
+                    toptemp = node.top_temp
+                    while True:
+                        # If the thermocline has reached the bottom, time to change top temp and thermocline
+                        if thermoc==NUM_LAYERS:
+                            toptemp = toptemp+TEMP_LIFT
+                            thermoc = 1
+                        # Set up a new node with more energy
+                        node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                        energy_to_store = node_next.energy() - node.energy()
+                        # Stop if the storage is charged by more than the HP can provide
+                        if HP_POWER - (energy_to_store + self.load[h]) < 0:
+                                thermoc += -1
+                                break
+                        thermoc += 1
+                    max_node = Node(h+1, thermocline=thermoc, top_temp=node.top_temp)
+                    self.nodes.append(max_node)
     
     def define_edges(self):
         self.edges = []
@@ -230,7 +272,7 @@ class Graph():
 
 
 time_now = pendulum.datetime(2022, 12, 15, 18, 0, 0, tz='America/New_York')
-state_now = {'top_temp':50, 'thermocline':6}
+state_now = {'top_temp':50, 'thermocline':600}
 
 g = Graph(state_now, time_now)
 g.solve_dijkstra()
