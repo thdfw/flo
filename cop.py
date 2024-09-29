@@ -32,6 +32,7 @@ popt, pcov = curve_fit(model, X_list, y)
 big_df['COP_approx'] = model(X_list, *popt)
 
 def COP(oat,lwt,ewt=None):
+    return 2
     if ewt is None:
         ewt = lwt-11
     return model([oat,lwt,ewt], *popt)
