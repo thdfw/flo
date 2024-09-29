@@ -68,11 +68,11 @@ def closed_loop_simulation(time_now, state_now, simulation_hours):
     if len(time_list)<50 and len(time_list)>10:
         ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
     # Second plot
-    norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-TEMP_LIFT), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP))
+    norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-TEMP_LIFT-10), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP))
     cmap = matplotlib.colormaps['Reds']
     inverse_list_thermoclines = [NUM_LAYERS-x+1 for x in list_thermoclines]
     fahrenheit_toptemps = [ceclius_to_fahrenheit(x) for x in list_toptemps]
-    bottom_bar_colors = [cmap(norm(value-TEMP_LIFT)) for value in fahrenheit_toptemps]
+    bottom_bar_colors = [cmap(norm(ceclius_to_fahrenheit(x-TEMP_LIFT))) for x in list_toptemps]
     ax3 = ax[1].twinx()
     ax[1].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
     top_part = [NUM_LAYERS-x if x<NUM_LAYERS else 0 for x in inverse_list_thermoclines]

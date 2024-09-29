@@ -118,7 +118,7 @@ class Graph():
                         if energy_to_store + self.load[h] < 0:
                             thermoc += 1
                             if thermoc == NUM_LAYERS+1:
-                                thermoc = 1
+                                thermoc = 2
                             break
                         thermoc += -1
                     min_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
@@ -146,7 +146,7 @@ class Graph():
                         if HP_POWER - (energy_to_store + self.load[h]) < 0:
                             thermoc += -1
                             if thermoc == 0:
-                                thermoc = NUM_LAYERS
+                                thermoc = NUM_LAYERS-1
                             break
                         thermoc += 1
                     max_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
@@ -267,11 +267,11 @@ class Graph():
         if len(time_list)<50 and len(time_list)>10:
             ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
         # Second plot
-        norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-TEMP_LIFT), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP))
+        norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-TEMP_LIFT-10), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP))
         cmap = matplotlib.colormaps['Reds']
         inverse_list_thermoclines = [NUM_LAYERS-x+1 for x in self.list_thermoclines]
         fahrenheit_toptemps = [ceclius_to_fahrenheit(x) for x in self.list_toptemps]
-        bottom_bar_colors = [cmap(norm(value-TEMP_LIFT)) for value in fahrenheit_toptemps]
+        bottom_bar_colors = [cmap(norm(ceclius_to_fahrenheit(x-TEMP_LIFT))) for x in self.list_toptemps]
         ax3 = ax[1].twinx()
         ax[1].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
         top_part = [NUM_LAYERS-x if x<NUM_LAYERS else 0 for x in inverse_list_thermoclines]
