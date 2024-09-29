@@ -28,7 +28,7 @@ def closed_loop_simulation(time_now, state_now, simulation_hours):
         time_now = time_now.add(hours=1)
         state_now = g.source_node.next_node
         state_now.time_slice = 0
-        print(state_now)
+        # print(state_now)
 
         total_cost += g.source_node.pathcost - g.source_node.next_node.pathcost
         list_elec_prices.append(g.elec_prices[0])
