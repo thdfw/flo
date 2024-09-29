@@ -4,10 +4,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from past_data import get_data
 from cop import COP, ceclius_to_fahrenheit
-import pendulum
 
 HORIZON = 2*24 # hours
-ADD_MIN_MAX = True
 ADD_MIN_HOURS = 2
 ADD_MAX_HOURS = 1
 HP_POWER = 12 # kW
@@ -17,6 +15,7 @@ MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11 # C
 TEMP_DROP = 11 # C
 NUM_LAYERS = 1200
+
 
 class Node():
     def __init__(self, time_slice:int, top_temp:float, thermocline:float):
@@ -52,7 +51,7 @@ class Edge():
 class Graph():
     def __init__(self, start_state:Node, start_time):
         # print("\nSetting up the graph...")
-        timer = time.time()
+        # timer = time.time()
         self.start_time = start_time
         self.source_node = start_state
         self.get_forecasts()
@@ -96,55 +95,62 @@ class Graph():
                                  self.source_node.thermocline)
             ])
         
-        if ADD_MIN_MAX:
-            # Add the min and max nodes for each node in the first time steps
-            for h in range(HORIZON+1):
-                # print(f"Hour {h}...")
-                for node in [x for x in self.nodes if x.time_slice==h]:
-                    
-                    if h<=ADD_MIN_HOURS:
-                        # Discharging: find node that minimizes energy_from_hp
-                        thermoc = node.thermocline
-                        toptemp = node.top_temp
-                        while True:
-                            # If the thermocline has reached the top, time to change top temp and thermocline
-                            if thermoc==1:
-                                toptemp = toptemp-TEMP_DROP
-                                thermoc = NUM_LAYERS
-                            # Set up a new node with less energy
-                            node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
-                            energy_to_store = node_next.energy() - node.energy()
-                            # Stop if the storage is discharged by more than the amount of the load
-                            if energy_to_store + self.load[h] < 0:
-                                    thermoc += 1
-                                    break
-                            thermoc += -1
-                        min_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
-                        self.nodes.append(min_node)
-                        if h==0:
-                            print(node)
-                            print(min_node)
-                            print(min_node.energy() - node.energy() + self.load[0])
-
-                    if h <= ADD_MAX_HOURS:
-                        # Charging: find node that minimizes HP_POWER - energy_from_hp
-                        thermoc = node.thermocline
-                        toptemp = node.top_temp
-                        while True:
-                            # If the thermocline has reached the bottom, time to change top temp and thermocline
-                            if thermoc==NUM_LAYERS:
-                                toptemp = toptemp+TEMP_LIFT
-                                thermoc = 1
-                            # Set up a new node with more energy
-                            node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
-                            energy_to_store = node_next.energy() - node.energy()
-                            # Stop if the storage is charged by more than the HP can provide
-                            if HP_POWER - (energy_to_store + self.load[h]) < 0:
-                                    thermoc += -1
-                                    break
+        # Add the min and max nodes for each node in the first time steps
+        for h in range(HORIZON+1):
+            # print(f"Hour {h}...")
+            for node in [x for x in self.nodes if x.time_slice==h]:
+                
+                # Discharging: find node that minimizes energy_from_hp
+                if h<=ADD_MIN_HOURS:
+                    thermoc = node.thermocline
+                    toptemp = node.top_temp
+                    while True:
+                        # If the thermocline has reached the top
+                        if thermoc==1:
+                            if toptemp-TEMP_DROP < MIN_TOP_TEMP:
+                                break
+                            toptemp = toptemp-TEMP_DROP
+                            thermoc = NUM_LAYERS
+                        # Set up a new node with less energy
+                        node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                        energy_to_store = node_next.energy() - node.energy()
+                        # Stop if the storage is discharged by more than the amount of the load
+                        if energy_to_store + self.load[h] < 0:
                             thermoc += 1
-                        max_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
-                        self.nodes.append(max_node)
+                            if thermoc == NUM_LAYERS+1:
+                                thermoc = 1
+                            break
+                        thermoc += -1
+                    min_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                    self.nodes.append(min_node)
+                    if h==0:
+                        print(node)
+                        print(min_node)
+                        print(min_node.energy() - node.energy() + self.load[0])
+
+                if h <= ADD_MAX_HOURS:
+                    # Charging: find node that minimizes HP_POWER - energy_from_hp
+                    thermoc = node.thermocline
+                    toptemp = node.top_temp
+                    while True:
+                        # If the thermocline has reached the bottom
+                        if thermoc==NUM_LAYERS:
+                            if toptemp+TEMP_LIFT > MAX_TOP_TEMP:
+                                break
+                            toptemp = toptemp+TEMP_LIFT
+                            thermoc = 1
+                        # Set up a new node with more energy
+                        node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                        energy_to_store = node_next.energy() - node.energy()
+                        # Stop if the storage is charged by more than the HP can provide
+                        if HP_POWER - (energy_to_store + self.load[h]) < 0:
+                            thermoc += -1
+                            if thermoc == 0:
+                                thermoc = NUM_LAYERS
+                            break
+                        thermoc += 1
+                    max_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                    self.nodes.append(max_node)
     
     def define_edges(self):
         self.edges = []
@@ -186,7 +192,7 @@ class Graph():
    
     def solve_dijkstra(self):
         # print("Solving Dijkstra...")
-        start_time = time.time()
+        # start_time = time.time()
 
         # Initialise the nodes in the last time slice with a path cost of 0
         for node in [x for x in self.nodes if x.time_slice==HORIZON]:
@@ -282,82 +288,4 @@ class Graph():
         cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.025, pad=0.15, alpha=0.7)
         cbar.set_label('Temperature [F]')
         plt.show()
-
-
-time_now = pendulum.datetime(2022, 12, 16, 16, 0, 0, tz='America/New_York')
-state_now = Node(time_slice=0, top_temp=50, thermocline=600)
-
-list_elec_prices = []
-list_load = []
-list_hp_energy = []
-list_thermoclines = []
-list_storage_energy = []
-list_toptemps = []
-
-for i in range(48):
-
-    print(f"Hour {i}")
-
-    g = Graph(state_now, time_now)
-    g.solve_dijkstra()
-    # g.plot(print_nodes=False)
-
-    time_now = time_now.add(hours=1)
-    state_now = g.source_node.next_node
-    state_now.time_slice = 0
-    print(state_now)
-
-    list_elec_prices.append(g.elec_prices[0])
-    list_load.append(g.load[0])
-    energy_to_store = g.source_node.next_node.energy() - g.source_node.energy()
-    energy_from_HP = energy_to_store + g.load[0]
-    list_hp_energy.append(energy_from_HP)
-
-    list_toptemps.append(g.source_node.top_temp)
-    list_thermoclines.append(g.source_node.thermocline)
-    list_storage_energy.append(g.source_node.energy())
-list_storage_energy.append(g.source_node.next_node.energy())
-list_thermoclines.append(g.source_node.next_node.thermocline)
-list_toptemps.append(g.source_node.next_node.top_temp)
-
-# Plot
-min_energy = Node(0,MIN_TOP_TEMP,1).energy()
-max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
-soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in list_storage_energy]
-time_list = list(range(len(soc_list)))
-# First plot
-fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
-ax[0].step(time_list, list_hp_energy+[list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
-ax[0].step(time_list, list_load+[list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
-ax[0].set_ylabel('Heat [kWh]')
-ax[0].set_ylim([-0.5,20])
-ax[0].legend(loc='upper left')
-ax2 = ax[0].twinx()
-ax2.step(time_list, list_elec_prices+[list_elec_prices[-1]], where='post', color='gray', alpha=0.6, label='Elec price')
-ax2.set_ylabel('Electricity price [$/MWh]')
-ax2.legend(loc='upper right')
-ax2.set_ylim([0,600])
-if len(time_list)<50 and len(time_list)>10:
-    ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
-# Second plot
-norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-TEMP_LIFT), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP))
-cmap = matplotlib.colormaps['Reds']
-inverse_list_thermoclines = [NUM_LAYERS-x+1 for x in list_thermoclines]
-fahrenheit_toptemps = [ceclius_to_fahrenheit(x) for x in list_toptemps]
-bottom_bar_colors = [cmap(norm(value-TEMP_LIFT)) for value in fahrenheit_toptemps]
-ax3 = ax[1].twinx()
-ax[1].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
-top_part = [NUM_LAYERS-x if x<NUM_LAYERS else 0 for x in inverse_list_thermoclines]
-top_bar_colors = [cmap(norm(value)) for value in fahrenheit_toptemps]
-ax[1].bar(time_list, top_part, bottom=inverse_list_thermoclines, color=top_bar_colors, alpha=0.7)
-ax[1].set_ylim([0, NUM_LAYERS])
-ax[1].set_yticks([])
-ax[1].set_xlabel('Time [hours]')
-ax[1].set_ylabel('Storage state')
-ax3.plot(time_list, soc_list, color='black', alpha=0.4, label='SoC')
-ax3.set_ylim([-1,101])
-ax3.set_ylabel('SOC [%]')
-sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.025, pad=0.15, alpha=0.7)
-cbar.set_label('Temperature [F]')
-plt.show()
+    
