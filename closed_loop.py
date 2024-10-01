@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from cop import ceclius_to_fahrenheit
 import pendulum
+import time
 
 def closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration=False):
     list_elec_prices = []
@@ -15,15 +16,22 @@ def closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration
     list_toptemps = []
     simulation_start_time = time_now
     total_cost = 0
+    timer = time.time()
 
     for i in range(simulation_hours):
 
-        print(f"Hour {i}/{simulation_hours}")
+        if i==0: 
+            print(f"\nStarting the {simulation_hours}-hour simulation...")
+        else:
+            print(f"Hour {i} / {simulation_hours}")
 
         g = Graph(state_now, time_now)
         g.solve_dijkstra()
         if plot_iteration: 
             g.plot(print_nodes=False)
+
+        if i==0:
+            print(f"Estimated simulation time: {round(simulation_hours*(time.time()-timer))} seconds\n")
 
         # Move to next hour
         time_now = time_now.add(hours=1)
