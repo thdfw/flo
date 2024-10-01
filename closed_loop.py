@@ -6,7 +6,7 @@ from matplotlib.colors import Normalize
 from cop import ceclius_to_fahrenheit
 import pendulum
 
-def closed_loop_simulation(time_now, state_now, simulation_hours):
+def closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration=False):
     list_elec_prices = []
     list_load = []
     list_hp_energy = []
@@ -18,11 +18,12 @@ def closed_loop_simulation(time_now, state_now, simulation_hours):
 
     for i in range(simulation_hours):
 
-        print(f"Hour {i}")
+        print(f"Hour {i}/{simulation_hours}")
 
         g = Graph(state_now, time_now)
         g.solve_dijkstra()
-        # g.plot(print_nodes=False)
+        if plot_iteration: 
+            g.plot(print_nodes=False)
 
         # Move to next hour
         time_now = time_now.add(hours=1)
@@ -52,7 +53,7 @@ def closed_loop_simulation(time_now, state_now, simulation_hours):
     end_time = simulation_start_time.add(hours=simulation_hours).format('YYYY-MM-DD HH:mm')
     total_title = f"Closed loop simulation, horizon {HORIZON} hours"
     total_title += f"\nFrom {simulation_start_time.format('YYYY-MM-DD HH:mm')} to {end_time}"
-    total_title += f"\nCost: {round(total_cost,2)} $"
+    total_title += f"\nCost: {round(total_cost/10,2)} $"
     fig.suptitle(total_title, fontsize=10)
     # First plot
     ax[0].step(time_list, list_hp_energy+[list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
@@ -93,8 +94,8 @@ def closed_loop_simulation(time_now, state_now, simulation_hours):
 
 if __name__ == '__main__':
 
-    time_now = pendulum.datetime(2022, 12, 16, 16, 0, 0, tz='America/New_York')
+    time_now = pendulum.datetime(2022, 12, 16, 21, 0, 0, tz='America/New_York')
     state_now = Node(time_slice=0, top_temp=50, thermocline=600)
-    simulation_hours = 72
+    simulation_hours = 24
 
-    closed_loop_simulation(time_now, state_now, simulation_hours)
+    closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration=False)
