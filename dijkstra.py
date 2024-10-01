@@ -6,8 +6,8 @@ from past_data import get_data
 from cop import COP, ceclius_to_fahrenheit
 
 HORIZON = 2*24 # hours
-ADD_MIN_HOURS = 2
-ADD_MAX_HOURS = 1
+ADD_MIN_HOURS = 0
+ADD_MAX_HOURS = 0
 HP_POWER = 12 # kW
 M_TANKS = 454.25*3 # kg
 MIN_TOP_TEMP = 50 # C
@@ -24,6 +24,7 @@ class Node():
         self.thermocline = thermocline
         self.pathcost = int(1e9)
         self.next_node = None
+        self.has_edge = False
 
     def __repr__(self):
         return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, pathcost:{self.pathcost}]"
@@ -150,9 +151,10 @@ class Graph():
     
     def define_edges(self):
         self.edges = []
-        for time in range(HORIZON):
-            for node_now in [x for x in self.nodes if x.time_slice==time]:
-                for node_next in [x for x in self.nodes if x.time_slice==time+1]:
+        self.source_node.has_edge = True
+        for h in range(HORIZON):
+            for node_now in [x for x in self.nodes if x.time_slice==h and x.has_edge]:
+                for node_next in [x for x in self.nodes if x.time_slice==h+1]:
 
                     energy_to_store = node_next.energy() - node_now.energy() # int
                     energy_from_HP = energy_to_store + self.load[node_now.time_slice]
@@ -169,22 +171,27 @@ class Graph():
                             # Option 1
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
                                 self.edges.append(Edge(node_next,node_now,cost))
+                                node_next.has_edge = True
                             # Option 2
                             if node_next.top_temp==node_now.top_temp+TEMP_LIFT:
                                 self.edges.append(Edge(node_next,node_now,cost))
+                                node_next.has_edge = True
 
                         # DISCHARGING the storage
                         elif energy_to_store < 0:
                             # Option 1
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
                                 self.edges.append(Edge(node_next,node_now,cost))
+                                node_next.has_edge = True
                             # Option 2
                             if node_next.top_temp==node_now.top_temp-TEMP_DROP:
                                 self.edges.append(Edge(node_next,node_now,cost))
+                                node_next.has_edge = True
 
                         # DONT TOUCH the storage
                         elif energy_to_store==0 and node_next.top_temp==node_now.top_temp and node_next.thermocline==node_now.thermocline:
                             self.edges.append(Edge(node_next,node_now,cost))
+                            node_next.has_edge = True
    
     def solve_dijkstra(self):
         # print("Solving Dijkstra...")
@@ -200,12 +207,11 @@ class Graph():
             # print(f"- Working on hour {time_slice}...")
 
             # For all nodes in the current time slice
-            for node in [x for x in self.nodes if x.time_slice==time_slice]:
+            for node in [x for x in self.nodes if x.time_slice==time_slice and x.has_edge]:
 
                 # For all edges arriving at this node
                 available_edges = [e for e in self.edges if e.head==node]
                 total_costs = [e.tail.pathcost+e.cost for e in available_edges]
-                if available_edges == []: continue                  
 
                 # Find which of the available edges has the minimal total cost
                 best_edge = available_edges[total_costs.index(min(total_costs))]
@@ -248,7 +254,7 @@ class Graph():
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
         end_time = self.start_time.add(hours=HORIZON).format('YYYY-MM-DD HH:mm')
-        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm')} to {end_time}\nCost: {self.source_node.pathcost} $', fontsize=10)
+        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm')} to {end_time}\nCost: {self.source_node.pathcost/10} $', fontsize=10)
         # First plot
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
