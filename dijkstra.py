@@ -6,8 +6,8 @@ from past_data import get_data
 from cop import COP, ceclius_to_fahrenheit
 
 HORIZON = 2*24 # hours
-ADD_MIN_HOURS = 0
-ADD_MAX_HOURS = 0
+ADD_MIN_HOURS = 1
+ADD_MAX_HOURS = 1
 HP_POWER = 12 # kW
 M_TANKS = 454.25*3 # kg
 MIN_TOP_TEMP = 50 # C
@@ -15,7 +15,7 @@ MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11 # C
 TEMP_DROP = 11 # C
 NUM_LAYERS = 1200
-
+OVERESTIME_LOAD = 1.1
 
 class Node():
     def __init__(self, time_slice:int, top_temp:float, thermocline:float):
@@ -65,9 +65,10 @@ class Graph():
         self.elec_prices = list(df.elec_prices)
         #self.elec_prices = list(df.jan24_prices)
         #self.elec_prices = list(df.jul24_prices)
-        self.load = list(df.load)
+        self.load = [x*0.7 for x in list(df.load)]
         self.oat = list(df.oat)
-        self.load = [x*0.7 for x in self.load]
+        # Overestimate forecasted loads
+        self.load = [self.load[0]] + [x*OVERESTIME_LOAD for x in self.load[1:]]
 
     def define_nodes(self):
         self.nodes = [self.source_node]
@@ -165,6 +166,10 @@ class Graph():
                         cop = COP(oat=self.oat[node_now.time_slice], ewt=node_now.top_temp-TEMP_LIFT, lwt=node_next.top_temp)
                         elec_cost = self.elec_prices[node_now.time_slice] / 1000
                         cost = round(elec_cost * energy_from_HP / cop,2)
+
+                        # Punish using the HP for less than 2 kWh
+                        if h==0 and energy_from_HP < 2 and energy_from_HP > 0.05:
+                            cost += 1e9
 
                         # CHARGING the storage
                         if energy_to_store > 0:
@@ -291,3 +296,6 @@ class Graph():
         cbar.set_label('Temperature [F]')
         plt.show()
     
+
+if __name__ == '__main__':
+    import running
