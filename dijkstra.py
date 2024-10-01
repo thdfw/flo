@@ -5,28 +5,29 @@ from matplotlib.colors import Normalize
 from past_data import get_data
 from cop import COP, ceclius_to_fahrenheit
 
-HORIZON = 2*24 # hours
-ADD_MIN_HOURS = 1
-ADD_MAX_HOURS = 1
+HORIZON = 48 # 11*31*24 # hours
+ADD_MIN_HOURS = -5
+ADD_MAX_HOURS = -5
 HP_POWER = 12 # kW
 M_TANKS = 454.25*3 # kg
 MIN_TOP_TEMP = 50 # C
 MAX_TOP_TEMP = 85 # C
 TEMP_LIFT = 11 # C
 TEMP_DROP = 11 # C
-NUM_LAYERS = 1200
-OVERESTIME_LOAD = 1.1
+NUM_LAYERS = 2400
+OVERESTIME_LOAD = 0 # %
+PUNISH_LOW_HP = False
 
 class Node():
     def __init__(self, time_slice:int, top_temp:float, thermocline:float):
         self.time_slice = time_slice
         self.top_temp = top_temp
         self.thermocline = thermocline
-        self.pathcost = int(1e9)
+        self.pathcost = 0 if time_slice==HORIZON else int(1e9)
         self.next_node = None
 
     def __repr__(self):
-        return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}, pathcost:{self.pathcost}]"
+        return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}]"
 
     def energy(self):
         m_layer = M_TANKS / NUM_LAYERS
@@ -45,21 +46,25 @@ class Edge():
         self.cost = cost
 
     def __repr__(self):
-        return f"Edge: {self.tail} --cost:{round(self.cost,1)}--> {self.head}"
+        return f"Edge: {self.tail} --cost:{round(self.cost,5)}--> {self.head}"
 
 
 class Graph():
     def __init__(self, start_state:Node, start_time):
-        # print("\nSetting up the graph...")
-        # timer = time.time()
+        print("\nSetting up the graph...")
+        timer = time.time()
         self.start_time = start_time
         self.source_node = start_state
         self.get_forecasts()
         self.define_nodes()
         self.define_edges()
         # for h in range(HORIZON+1):
-        #     print(f"Hour {h} has {len(self.nodes[h])} nodes")
-        # print(f"Done in {round(time.time()-timer)} seconds.\n")
+        #     print(f"\nHour {h} has {len(self.nodes[h])} nodes:")
+        #     for n in self.nodes[h]:
+        #         print(f"-{n}")
+        #     if h==1:
+        #         break
+        print(f"Done in {round(time.time()-timer,1)} seconds.\n")
 
     def get_forecasts(self):
         df = get_data(self.start_time, HORIZON)
@@ -69,8 +74,7 @@ class Graph():
         self.load = list(df.load)
         self.oat = list(df.oat)
         # Overestimate forecasted loads
-        # self.load = [x*0.7 for x in self.load]
-        self.load = [self.load[0]] + [x*OVERESTIME_LOAD for x in self.load[1:]]
+        self.load = [self.load[0]] + [x*(1+OVERESTIME_LOAD/100) for x in self.load[1:]]
 
     def define_nodes(self):
 
@@ -98,9 +102,6 @@ class Graph():
                 for top_temp in allowed_top_temps 
                 for thermocline in allowed_thermoclines
             )
-
-        print(allowed_top_temps)
-        print(allowed_thermoclines)
         
         # Add the min and max nodes for each node in the first time steps
         for h in range(HORIZON+1):
@@ -156,78 +157,60 @@ class Graph():
                     self.nodes[h+1].append(max_node)
     
     def define_edges(self):
-        self.edges = []
+        self.edges = {}
         for h in range(HORIZON):
             for node_now in self.nodes[h]:
+                self.edges[node_now] = []
                 for node_next in self.nodes[h+1]:
 
-                    losses = 0.05*(node_now.energy()-Node(0,MIN_TOP_TEMP,1).energy()) # 5% of current SOC
                     energy_to_store = node_next.energy() - node_now.energy()
-                    energy_from_HP = energy_to_store + self.load[node_now.time_slice] #+ losses
+                    energy_from_HP = energy_to_store + self.load[h]
+
+                    losses = 0.05*(node_now.energy()-Node(0,MIN_TOP_TEMP,1).energy()) # 5% of current SOC
+                    energy_from_HP += losses
 
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
                         
                         # Compute the cost
-                        cop = COP(oat=self.oat[node_now.time_slice], ewt=node_now.top_temp-TEMP_LIFT, lwt=node_next.top_temp)
-                        elec_cost = self.elec_prices[node_now.time_slice] / 1000
-                        cost = round(elec_cost * energy_from_HP / cop,2)
+                        cop = COP(oat=self.oat[h], ewt=node_now.top_temp-TEMP_LIFT, lwt=node_next.top_temp)
+                        elec_cost = self.elec_prices[h] / 1000
+                        cost = elec_cost * energy_from_HP / cop
 
                         # Punish using the HP for less than 2 kWh
-                        if h==0 and energy_from_HP < 2 and energy_from_HP > 0.05:
+                        if PUNISH_LOW_HP and h==0 and energy_from_HP < 2 and energy_from_HP > 0.05:
                             cost += 1e9
 
                         # CHARGING the storage
                         if energy_to_store > 0:
                             # Option 1
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
-                                self.edges.append(Edge(node_next,node_now,cost))
+                                self.edges[node_now].append(Edge(node_now,node_next,cost))
                             # Option 2
                             if node_next.top_temp==node_now.top_temp+TEMP_LIFT:
-                                self.edges.append(Edge(node_next,node_now,cost))
+                                self.edges[node_now].append(Edge(node_now,node_next,cost))
 
                         # DISCHARGING the storage
                         elif energy_to_store < 0:
                             # Option 1
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
-                                self.edges.append(Edge(node_next,node_now,cost))
+                                self.edges[node_now].append(Edge(node_now,node_next,cost))
                             # Option 2
                             if node_next.top_temp==node_now.top_temp-TEMP_DROP:
-                                self.edges.append(Edge(node_next,node_now,cost))
+                                self.edges[node_now].append(Edge(node_now,node_next,cost))
 
                         # DONT TOUCH the storage
                         elif energy_to_store==0 and node_next.top_temp==node_now.top_temp and node_next.thermocline==node_now.thermocline:
-                            self.edges.append(Edge(node_next,node_now,cost))
-   
+                            self.edges[node_now].append(Edge(node_now,node_next,cost))
+
     def solve_dijkstra(self):
         print("Solving Dijkstra...")
         start_time = time.time()
-
-        # Initialise the nodes in the last time slice with a path cost of 0
-        for node in self.nodes[HORIZON]:
-            node.pathcost = 0
-
-        # Moving backwards from the end of the horizon to current time 0
-        for h in range(1, HORIZON+1):
-            time_slice = HORIZON - h
-            # print(f"- Working on hour {time_slice}...")
-
-            # For all nodes in the current time slice
-            for node in self.nodes[time_slice]:
-
-                # For all edges arriving at this node
-                available_edges = [e for e in self.edges if e.head==node]
-                total_costs = [e.tail.pathcost+e.cost for e in available_edges]
-                if not available_edges: 
-                    continue
-
-                # Find which of the available edges has the minimal total cost
-                best_edge = available_edges[total_costs.index(min(total_costs))]
-
-                # Update the current node accordingly
-                node.pathcost = round(min(total_costs),2)
-                node.next_node = best_edge.tail
-
-        print(f"Done in {round(time.time()-start_time)} seconds.\n")
+        for time_slice in range(HORIZON-1, -1, -1):
+            for node in (n for n in self.nodes[time_slice] if n in self.edges):
+                best_edge = min(self.edges[node], key=lambda e: e.head.pathcost + e.cost)
+                node.pathcost = best_edge.head.pathcost + best_edge.cost
+                node.next_node = best_edge.head
+        print(f"Done in {round(time.time()-start_time,3)} seconds.\n")
         return
 
     def plot(self, print_nodes:bool):
@@ -300,4 +283,20 @@ class Graph():
     
 
 if __name__ == '__main__':
-    import running
+    
+    # import running
+
+    import pendulum
+    time_now = pendulum.datetime(2022, 1, 1, 0, 0, 0, tz='America/New_York')
+    state_now = Node(time_slice=0, top_temp=50, thermocline=600)
+
+    g = Graph(state_now, time_now)
+    g.solve_dijkstra()
+    g.plot(print_nodes=False)
+
+    # for n in g.nodes[1]:
+        # n.energy()
+        # print(f"Path cost: {n.pathcost}, Next node: {n.next_node}")
+
+    # for e in g.edges[g.source_node]:
+    #     print(e)
