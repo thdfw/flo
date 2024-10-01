@@ -2,7 +2,7 @@ import pandas as pd
 import pendulum
 import matplotlib.pyplot as plt
 
-df = pd.read_excel('gridworks_yearly_data.xlsx', header=3)
+df = pd.read_excel('data/gridworks_yearly_data.xlsx', header=3)
 df = df.drop(df.columns[[2,3,6]], axis=1)
 
 renamed_columns = {
