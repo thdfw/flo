@@ -23,13 +23,14 @@ class Node():
         self.time_slice = time_slice
         self.top_temp = top_temp
         self.thermocline = thermocline
+        self.energy = self.get_energy()
         self.pathcost = 0 if time_slice==HORIZON else int(1e9)
         self.next_node = None
 
     def __repr__(self):
         return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}]"
 
-    def energy(self):
+    def get_energy(self):
         m_layer = M_TANKS / NUM_LAYERS
         energy_top = (self.thermocline-1)*m_layer * 4187 * self.top_temp
         energy_bottom = (NUM_LAYERS-self.thermocline)*m_layer * 4187 * (self.top_temp-TEMP_LIFT)
@@ -40,10 +41,11 @@ class Node():
 
 
 class Edge():
-    def __init__(self, tail:Node, head:Node, cost:float):
+    def __init__(self, tail:Node, head:Node, cost:float, energy_from_HP:float):
         self.tail = tail
         self.head = head
         self.cost = cost
+        self.energy_from_HP = energy_from_HP
 
     def __repr__(self):
         return f"Edge: {self.tail} --cost:{round(self.cost,5)}--> {self.head}"
@@ -71,58 +73,36 @@ class Graph():
         self.elec_prices = list(df.elec_prices)
         # self.elec_prices = list(df.jan24_prices)
         # self.elec_prices = list(df.jul24_prices)
-        self.load = list(df.load)
         self.oat = list(df.oat)
-        # Overestimate forecasted loads
+        self.load = list(df.load)
         self.load = [self.load[0]] + [x*(1+OVERESTIME_LOAD/100) for x in self.load[1:]]
 
     def define_nodes(self):
-
-        # Find all the allowed top temperatures
-        allowed_top_temps = [self.source_node.top_temp]
-        t = self.source_node.top_temp
-        while t+TEMP_LIFT <= MAX_TOP_TEMP:
-            t = t + TEMP_LIFT
-            allowed_top_temps.append(t)
-        t = self.source_node.top_temp
-        while t-TEMP_LIFT >= MIN_TOP_TEMP:
-            t = t - TEMP_LIFT
-            allowed_top_temps.append(t)
-        allowed_top_temps = sorted(allowed_top_temps)
-
-        allowed_thermoclines = list(range(0, NUM_LAYERS+1, 100))
-        allowed_thermoclines[0] = 1
-
         self.nodes = {}
-        self.nodes[0] = [self.source_node]
-        for time_slice in range(1,HORIZON+1):
-            self.nodes[time_slice] = []
+        for time_slice in range(HORIZON+1):
+            self.nodes[time_slice] = [self.source_node] if time_slice==0 else []
             self.nodes[time_slice].extend(
                 Node(time_slice, top_temp, thermocline)
-                for top_temp in allowed_top_temps 
-                for thermocline in allowed_thermoclines
+                for top_temp in range(MIN_TOP_TEMP, MAX_TOP_TEMP, TEMP_LIFT) 
+                for thermocline in [1] + list(range(100, NUM_LAYERS + 1, 100))
+                if (time_slice, top_temp, thermocline) != (0, self.source_node.top_temp, self.source_node.thermocline)
             )
         
-        # Add the min and max nodes for each node in the first time steps
+        # Add the min and max nodes in the first time slice
         for h in range(HORIZON+1):
-            # print(f"Hour {h}...")
             for node in self.nodes[h]:
-                
                 # Discharging: find node that minimizes energy_from_hp
                 if h<ADD_MIN_HOURS:
                     thermoc = node.thermocline
                     toptemp = node.top_temp
                     while True:
-                        # If the thermocline has reached the top
                         if thermoc==1:
                             if toptemp-TEMP_DROP < MIN_TOP_TEMP:
                                 break
                             toptemp = toptemp-TEMP_DROP
                             thermoc = NUM_LAYERS
-                        # Set up a new node with less energy
                         node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
-                        energy_to_store = node_next.energy() - node.energy()
-                        # Stop if the storage is discharged by more than the amount of the load
+                        energy_to_store = node_next.energy - node.energy
                         if energy_to_store + self.load[h] < 0:
                             thermoc += 1
                             if thermoc == NUM_LAYERS+1:
@@ -131,23 +111,19 @@ class Graph():
                         thermoc += -1
                     min_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
                     self.nodes[h+1].append(min_node)
-
+                # Charging: find node that maximizes energy_from_hp
                 if h < ADD_MAX_HOURS:
-                    # Charging: find node that minimizes HP_POWER - energy_from_hp
                     thermoc = node.thermocline
                     toptemp = node.top_temp
                     while True:
-                        # If the thermocline has reached the bottom
                         if thermoc==NUM_LAYERS:
                             if toptemp+TEMP_LIFT > MAX_TOP_TEMP:
                                 break
                             toptemp = toptemp+TEMP_LIFT
                             thermoc = 1
-                        # Set up a new node with more energy
                         node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
-                        energy_to_store = node_next.energy() - node.energy()
-                        # Stop if the storage is charged by more than the HP can provide
-                        if HP_POWER - (energy_to_store + self.load[h]) < 0:
+                        energy_to_store = node_next.energy - node.energy
+                        if  energy_to_store + self.load[h] > HP_POWER:
                             thermoc += -1
                             if thermoc == 0:
                                 thermoc = NUM_LAYERS-1
@@ -163,44 +139,36 @@ class Graph():
                 self.edges[node_now] = []
                 for node_next in self.nodes[h+1]:
 
-                    energy_to_store = node_next.energy() - node_now.energy()
+                    energy_to_store = node_next.energy - node_now.energy
                     energy_from_HP = energy_to_store + self.load[h]
 
-                    losses = 0.05*(node_now.energy()-Node(0,MIN_TOP_TEMP,1).energy()) # 5% of current SOC
+                    losses = 0.05*(node_now.energy-Node(0,MIN_TOP_TEMP,1).energy)
                     energy_from_HP += losses
 
-                    if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
+                    if energy_from_HP <= HP_POWER and energy_from_HP>-0.5:
                         
-                        # Compute the cost
                         cop = COP(oat=self.oat[h], ewt=node_now.top_temp-TEMP_LIFT, lwt=node_next.top_temp)
                         elec_cost = self.elec_prices[h] / 1000
                         cost = elec_cost * energy_from_HP / cop
 
-                        # Punish using the HP for less than 2 kWh
-                        if PUNISH_LOW_HP and h==0 and energy_from_HP < 2 and energy_from_HP > 0.05:
-                            cost += 1e9
+                        if PUNISH_LOW_HP:
+                            if h==0 and energy_from_HP < 2 and energy_from_HP > 0.05:
+                                cost += 1e9
 
-                        # CHARGING the storage
                         if energy_to_store > 0:
-                            # Option 1
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
-                                self.edges[node_now].append(Edge(node_now,node_next,cost))
-                            # Option 2
+                                self.edges[node_now].append(Edge(node_now,node_next,cost,energy_from_HP))
                             if node_next.top_temp==node_now.top_temp+TEMP_LIFT:
-                                self.edges[node_now].append(Edge(node_now,node_next,cost))
+                                self.edges[node_now].append(Edge(node_now,node_next,cost,energy_from_HP))
 
-                        # DISCHARGING the storage
                         elif energy_to_store < 0:
-                            # Option 1
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
-                                self.edges[node_now].append(Edge(node_now,node_next,cost))
-                            # Option 2
+                                self.edges[node_now].append(Edge(node_now,node_next,cost,energy_from_HP))
                             if node_next.top_temp==node_now.top_temp-TEMP_DROP:
-                                self.edges[node_now].append(Edge(node_now,node_next,cost))
+                                self.edges[node_now].append(Edge(node_now,node_next,cost,energy_from_HP))
 
-                        # DONT TOUCH the storage
-                        elif energy_to_store==0 and node_next.top_temp==node_now.top_temp and node_next.thermocline==node_now.thermocline:
-                            self.edges[node_now].append(Edge(node_now,node_next,cost))
+                        else:
+                            self.edges[node_now].append(Edge(node_now,node_next,cost,energy_from_HP))
 
     def solve_dijkstra(self):
         print("Solving Dijkstra...")
@@ -208,6 +176,10 @@ class Graph():
         for time_slice in range(HORIZON-1, -1, -1):
             for node in (n for n in self.nodes[time_slice] if n in self.edges):
                 best_edge = min(self.edges[node], key=lambda e: e.head.pathcost + e.cost)
+                if best_edge.energy_from_HP<0: 
+                    best_edge_neg = max([e for e in self.edges[node] if e.energy_from_HP<0], key=lambda e: e.energy_from_HP)
+                    best_edge_pos = min([e for e in self.edges[node] if e.energy_from_HP>=0], key=lambda e: e.energy_from_HP)
+                    best_edge = best_edge_pos if (-best_edge_neg.energy_from_HP >= best_edge_pos.energy_from_HP) else best_edge_neg
                 node.pathcost = best_edge.head.pathcost + best_edge.cost
                 node.next_node = best_edge.head
         print(f"Done in {round(time.time()-start_time,3)} seconds.\n")
@@ -224,9 +196,11 @@ class Graph():
         node_i = self.source_node
         if print_nodes: print(node_i)
         while node_i.next_node is not None:
-            energy_to_store = node_i.next_node.energy() - node_i.energy()
+            energy_to_store = node_i.next_node.energy - node_i.energy
             energy_from_HP = energy_to_store + self.load[node_i.time_slice]
-            self.list_storage_energy.append(node_i.energy())
+            losses = 0.05*(node_i.energy-Node(0,MIN_TOP_TEMP,1).energy)
+            energy_from_HP += losses
+            self.list_storage_energy.append(node_i.energy)
             self.list_elec_prices.append(self.elec_prices[node_i.time_slice])
             self.list_load.append(self.load[node_i.time_slice])
             self.list_hp_energy.append(round(energy_from_HP,2))
@@ -234,12 +208,12 @@ class Graph():
             self.list_toptemps.append(node_i.top_temp)
             node_i = node_i.next_node
             if print_nodes: print(node_i)
-        self.list_storage_energy.append(node_i.energy())
+        self.list_storage_energy.append(node_i.energy)
         self.list_thermoclines.append(node_i.thermocline)
         self.list_toptemps.append(node_i.top_temp)
         # Plot the results
-        min_energy = Node(0,MIN_TOP_TEMP,1).energy()
-        max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
+        min_energy = Node(0,MIN_TOP_TEMP,1).energy
+        max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy
         soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
@@ -295,7 +269,7 @@ if __name__ == '__main__':
     g.plot(print_nodes=False)
 
     # for n in g.nodes[1]:
-        # n.energy()
+        # n.energy
         # print(f"Path cost: {n.pathcost}, Next node: {n.next_node}")
 
     # for e in g.edges[g.source_node]:

@@ -41,20 +41,22 @@ def closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration
 
         total_cost += g.source_node.pathcost - g.source_node.next_node.pathcost
         list_elec_prices.append(g.elec_prices[0])
-        list_load.append(g.load[0])
-        energy_to_store = g.source_node.next_node.energy() - g.source_node.energy()
+        energy_to_store = g.source_node.next_node.energy - g.source_node.energy
         energy_from_HP = energy_to_store + g.load[0]
+        losses = 0.05*(g.source_node.energy-Node(0,MIN_TOP_TEMP-1,1).energy)
+        energy_from_HP += losses
         list_hp_energy.append(energy_from_HP)
+        list_load.append(g.load[0] + losses)
         list_toptemps.append(g.source_node.top_temp)
         list_thermoclines.append(g.source_node.thermocline)
-        list_storage_energy.append(g.source_node.energy())
-    list_storage_energy.append(g.source_node.next_node.energy())
+        list_storage_energy.append(g.source_node.energy)
+    list_storage_energy.append(g.source_node.next_node.energy)
     list_thermoclines.append(g.source_node.next_node.thermocline)
     list_toptemps.append(g.source_node.next_node.top_temp)
 
     # Plot
-    min_energy = Node(0,MIN_TOP_TEMP,1).energy()
-    max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy()
+    min_energy = Node(0,MIN_TOP_TEMP,1).energy
+    max_energy = Node(0,MAX_TOP_TEMP,NUM_LAYERS).energy
     soc_list = [(x-min_energy)/(max_energy-min_energy)*100 for x in list_storage_energy]
     time_list = list(range(len(soc_list)))
     fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
