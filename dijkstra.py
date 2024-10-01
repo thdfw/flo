@@ -63,8 +63,8 @@ class Graph():
     def get_forecasts(self):
         df = get_data(self.start_time, HORIZON)
         self.elec_prices = list(df.elec_prices)
-        #self.elec_prices = list(df.jan24_prices)
-        #self.elec_prices = list(df.jul24_prices)
+        # self.elec_prices = list(df.jan24_prices)
+        # self.elec_prices = list(df.jul24_prices)
         self.load = [x*0.7 for x in list(df.load)]
         self.oat = list(df.oat)
         # Overestimate forecasted loads
@@ -157,7 +157,7 @@ class Graph():
             for node_now in [x for x in self.nodes if x.time_slice==h and x.has_edge]:
                 for node_next in [x for x in self.nodes if x.time_slice==h+1]:
 
-                    energy_to_store = node_next.energy() - node_now.energy() # int
+                    energy_to_store = node_next.energy() - node_now.energy()
                     energy_from_HP = energy_to_store + self.load[node_now.time_slice]
 
                     if energy_from_HP <= HP_POWER and energy_from_HP >= 0:
@@ -239,7 +239,7 @@ class Graph():
         node_i = self.source_node
         if print_nodes: print(node_i)
         while node_i.next_node is not None:
-            energy_to_store = node_i.next_node.energy() - node_i.energy() # int
+            energy_to_store = node_i.next_node.energy() - node_i.energy()
             energy_from_HP = energy_to_store + self.load[node_i.time_slice]
             self.list_storage_energy.append(node_i.energy())
             self.list_elec_prices.append(self.elec_prices[node_i.time_slice])
