@@ -109,7 +109,7 @@ class Graph():
             for node in self.nodes[h]:
                 
                 # Discharging: find node that minimizes energy_from_hp
-                if h<=ADD_MIN_HOURS:
+                if h<ADD_MIN_HOURS:
                     thermoc = node.thermocline
                     toptemp = node.top_temp
                     while True:
@@ -132,7 +132,7 @@ class Graph():
                     min_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
                     self.nodes[h+1].append(min_node)
 
-                if h <= ADD_MAX_HOURS:
+                if h < ADD_MAX_HOURS:
                     # Charging: find node that minimizes HP_POWER - energy_from_hp
                     thermoc = node.thermocline
                     toptemp = node.top_temp
