@@ -13,12 +13,11 @@ for file in os.listdir('data/'):
         big_df = pd.concat([big_df, df], ignore_index=True) 
 
 # Model for the COP
-def model(X,a,b,c,d,e,f,g):#h,i,j,k):
+def model(X,a,b,c,d):
     x1, x2, x3 = X
     approx = (a 
               + b*x1 + c*x2 + d*x3
-              + e*x1**2 + f*x2**2 + g*x3**2
-              #+ h*x1*x2 + i*x1*x3 + j*x2*x3+ k*x1*x2*x3
+              #+ e*x1**2 + f*x2**2 + g*x3**2
               )
     return approx
 
@@ -32,7 +31,7 @@ popt, pcov = curve_fit(model, X_list, y)
 big_df['COP_approx'] = model(X_list, *popt)
 
 def COP(oat,lwt,ewt=None):
-    return 2
+    # return 2
     if ewt is None:
         ewt = lwt-11
     return model([oat,lwt,ewt], *popt)

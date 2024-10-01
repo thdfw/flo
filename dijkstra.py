@@ -65,7 +65,7 @@ class Graph():
         self.elec_prices = list(df.elec_prices)
         # self.elec_prices = list(df.jan24_prices)
         # self.elec_prices = list(df.jul24_prices)
-        self.load = [x*0.7 for x in list(df.load)]
+        self.load = list(df.load)
         self.oat = list(df.oat)
         # Overestimate forecasted loads
         self.load = [self.load[0]] + [x*OVERESTIME_LOAD for x in self.load[1:]]
