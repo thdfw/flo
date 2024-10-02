@@ -49,7 +49,7 @@ class Edge():
         self.energy_from_HP = energy_from_HP
 
     def __repr__(self):
-        return f"Edge: {self.tail} --cost:{round(self.cost,5)}--> {self.head}"
+        return f"Edge: {self.tail} --cost:{round(self.cost,3)}--> {self.head}"
 
 
 class Graph():
@@ -186,7 +186,8 @@ class Graph():
         print(f"Done in {round(time.time()-start_time,3)} seconds.\n")
         return
 
-    def plot(self, print_nodes:bool):
+    def plot(self):
+        print_nodes = False
         self.list_hp_energy = []
         self.list_storage_energy = []
         self.list_elec_prices = []
@@ -219,7 +220,7 @@ class Graph():
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
         end_time = self.start_time.add(hours=HORIZON).format('YYYY-MM-DD HH:mm')
-        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm')} to {end_time}\nCost: {self.source_node.pathcost/10} $', fontsize=10)
+        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm')} to {end_time}\nCost: {round(self.source_node.pathcost/10,3)} $', fontsize=10)
         # First plot
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
@@ -254,19 +255,26 @@ class Graph():
         cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.025, pad=0.15, alpha=0.7)
         cbar.set_label('Temperature [F]')
         plt.show()
-    
+
+    def bid(self):
+        max_node = max(self.edges[self.source_node], key=lambda x: x.cost)
+        min_node = min(self.edges[self.source_node], key=lambda x: x.cost)
+        bid = (max_node.cost - min_node.cost) / (max_node.energy_from_HP - min_node.energy_from_HP)
+        self.bid = bid
+        print(f"Bid {round(bid*100,2)} cts/kWh")
 
 if __name__ == '__main__':
     
     # import running
 
     import pendulum
-    time_now = pendulum.datetime(2022, 1, 1, 0, 0, 0, tz='America/New_York')
+    time_now = pendulum.datetime(2022, 12, 16, 21, 0, 0, tz='America/New_York')
     state_now = Node(time_slice=0, top_temp=120, thermocline=600)
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
-    g.plot(print_nodes=False)
+    g.bid()
+    g.plot()
 
     # for n in g.nodes[1]:
         # n.energy

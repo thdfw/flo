@@ -3,7 +3,6 @@ from dijkstra import HORIZON, MIN_TOP_TEMP, MAX_TOP_TEMP, TEMP_LIFT, NUM_LAYERS
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
-from cop import ceclius_to_fahrenheit
 import pendulum
 import time
 
@@ -43,7 +42,7 @@ def closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration
         list_elec_prices.append(g.elec_prices[0])
         energy_to_store = g.source_node.next_node.energy - g.source_node.energy
         energy_from_HP = energy_to_store + g.load[0]
-        losses = 0.05*(g.source_node.energy-Node(0,MIN_TOP_TEMP-1,1).energy)
+        losses = 0.005*(g.source_node.energy-Node(0,MIN_TOP_TEMP,1).energy)
         energy_from_HP += losses
         list_hp_energy.append(energy_from_HP)
         list_load.append(g.load[0] + losses)
@@ -79,15 +78,14 @@ def closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration
     if len(time_list)<50 and len(time_list)>10:
         ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
     # Second plot
-    norm = Normalize(vmin=ceclius_to_fahrenheit(MIN_TOP_TEMP-TEMP_LIFT-10), vmax=ceclius_to_fahrenheit(MAX_TOP_TEMP))
+    norm = Normalize(vmin=MIN_TOP_TEMP-TEMP_LIFT, vmax=MAX_TOP_TEMP)
     cmap = matplotlib.colormaps['Reds']
     inverse_list_thermoclines = [NUM_LAYERS-x+1 for x in list_thermoclines]
-    fahrenheit_toptemps = [ceclius_to_fahrenheit(x) for x in list_toptemps]
-    bottom_bar_colors = [cmap(norm(ceclius_to_fahrenheit(x-TEMP_LIFT))) for x in list_toptemps]
+    bottom_bar_colors = [cmap(norm(x-TEMP_LIFT)) for x in list_toptemps]
     ax3 = ax[1].twinx()
     ax[1].bar(time_list, inverse_list_thermoclines, color=bottom_bar_colors, alpha=0.7)
     top_part = [NUM_LAYERS-x if x<NUM_LAYERS else 0 for x in inverse_list_thermoclines]
-    top_bar_colors = [cmap(norm(value)) for value in fahrenheit_toptemps]
+    top_bar_colors = [cmap(norm(value)) for value in list_toptemps]
     ax[1].bar(time_list, top_part, bottom=inverse_list_thermoclines, color=top_bar_colors, alpha=0.7)
     ax[1].set_ylim([0, NUM_LAYERS])
     ax[1].set_yticks([])
@@ -105,7 +103,7 @@ def closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration
 if __name__ == '__main__':
 
     time_now = pendulum.datetime(2022, 12, 16, 21, 0, 0, tz='America/New_York')
-    state_now = Node(time_slice=0, top_temp=50, thermocline=600)
+    state_now = Node(time_slice=0, top_temp=120, thermocline=600)
     simulation_hours = 24
 
     closed_loop_simulation(time_now, state_now, simulation_hours, plot_iteration=False)
