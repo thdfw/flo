@@ -13,31 +13,28 @@ for file in os.listdir('data/'):
         big_df = pd.concat([big_df, df], ignore_index=True) 
 
 # Model for the COP
-def model(X,a,b,c,d):
-    x1, x2, x3 = X
-    approx = (a 
-              + b*x1 + c*x2 + d*x3
-              #+ e*x1**2 + f*x2**2 + g*x3**2
-              )
+def model(X,a,b,c):
+    x1, x2 = X
+    approx = a + b*x1 + c*x2
     return approx
 
 # Fit the model
 x_o = np.array(list(big_df.oat))
 x_l = np.array(list(big_df.lwt))
-x_e = np.array(list(big_df.ewt))
-X_list = np.vstack((x_o, x_l, x_e))
+X_list = np.vstack((x_o, x_l))
 y = np.array(list(big_df.COP))
 popt, pcov = curve_fit(model, X_list, y)
 big_df['COP_approx'] = model(X_list, *popt)
 
-def COP(oat,lwt,ewt=None):
+def COP(oat,lwt):
     # return 2
-    if ewt is None:
-        ewt = lwt-11
-    return model([oat,lwt,ewt], *popt)
+    return model([oat,lwt], *popt)
 
-def ceclius_to_fahrenheit(t):
+def to_fahrenheit(t):
     return t*9/5 + 32
+
+def to_celcius(t):
+    return (t-32)*5/9
 
 # Plot the approximation
 if __name__ == '__main__':
