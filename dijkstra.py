@@ -260,14 +260,11 @@ class Graph():
     def bid(self):
         max_edge = max(self.edges[self.source_node], key=lambda x: x.cost)
         min_edge = min(self.edges[self.source_node], key=lambda x: x.cost)
-        print(f"\nMax edge: {max_edge}")
-        print(f"Min edge: {min_edge}")
-        print(f"Energy from HP to reach min edge: {min_edge.energy_from_HP}\n")
         bid = (min_edge.head.pathcost - max_edge.head.pathcost) / (max_edge.energy_from_HP - min_edge.energy_from_HP)
         # If the house will be going cold if we don't buy electricty now, buy at any price?
         if min_edge.head.top_temp==MIN_TOP_TEMP and min_edge.head.thermocline==1 and min_edge.energy_from_HP>1:
-            print("The house will go cold if we don't buy now.")
-            #bid = 10
+            print(f"The house will go cold if we don't buy now (will not receive missing {round(min_edge.energy_from_HP,1)} kWh)")
+            bid = 10
         self.bid = bid
         print(f"Buy electricity if it costs less than {round(bid*100,2)} cts/kWh\n")
 
