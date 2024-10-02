@@ -14,21 +14,23 @@ renamed_columns = {
 }
 df.rename(columns=renamed_columns, inplace=True)
 
+df['elec_prices'] = df['elec_prices']/10
+
 weekday_prices = [0.07026]*7 + [0.50477]*5 + [0.07508]*4 + [0.50477]*4 + [0.07026]*4
 weekend_prices = [0.07026]*7 + [0.07508]*13 + [0.07026]*4
 def get_price_jan24(row):
     if row['day_type'] == 'weekday':
-        return weekday_prices[row['hour']]*1000
+        return weekday_prices[row['hour']]*100
     elif row['day_type'] == 'weekend':
-        return weekend_prices[row['hour']]*1000
+        return weekend_prices[row['hour']]*100
 
 weekday_prices_jul24 = [0.07099]*7 + [0.15432]*5 + [0.13450]*4 + [0.15432]*4 + [0.07099]*4
 weekend_prices_jul24 = [0.07099]*7 + [0.13450]*13 + [0.07099]*4
 def get_price_jul24(row):
     if row['day_type'] == 'weekday':
-        return weekday_prices_jul24[row['hour']]*1000
+        return weekday_prices_jul24[row['hour']]*100
     elif row['day_type'] == 'weekend':
-        return weekend_prices_jul24[row['hour']]*1000
+        return weekend_prices_jul24[row['hour']]*100
     
 df['oat'] = df['oat'].apply(lambda x: round(5/9 * (x-32),2))
 df['time'] = df['date_time'].dt.round('h')

@@ -1,11 +1,12 @@
 import time
+import pendulum
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from past_data import get_data
 from cop import COP, to_celcius
 
-HORIZON = 48 #11*31*24 # hours
+HORIZON = 48 # hours
 NUM_LAYERS = 2400
 MIN_TOP_TEMP = 120 # F
 MAX_TOP_TEMP = 180 # F
@@ -62,9 +63,10 @@ class Graph():
         self.define_nodes()
         self.define_edges()
         # for h in range(HORIZON+1):
-        #     print(f"\nHour {h} has {len(self.nodes[h])} nodes:")
+        #     print(f"Hour {h} has {len(self.nodes[h])} nodes")
         #     for n in self.nodes[h]:
         #         print(f"-{n}")
+        #     print('')
         #     if h==1:
         #         break
         print(f"Done in {round(time.time()-timer,1)} seconds.\n")
@@ -72,7 +74,7 @@ class Graph():
     def get_forecasts(self):
         df = get_data(self.start_time, HORIZON)
         self.elec_prices = list(df.elec_prices)
-        # self.elec_prices = list(df.jan24_prices)
+        self.elec_prices = list(df.jan24_prices)
         # self.elec_prices = list(df.jul24_prices)
         self.oat = list(df.oat)
         self.load = list(df.load)
@@ -149,7 +151,7 @@ class Graph():
                     if energy_from_HP <= HP_POWER and energy_from_HP>-0.5:
                         
                         cop = COP(oat=self.oat[h], lwt=to_celcius(node_next.top_temp))
-                        elec_cost = self.elec_prices[h] / 1000
+                        elec_cost = self.elec_prices[h] / 100
                         cost = elec_cost * energy_from_HP / cop
 
                         if PUNISH_LOW_HP:
@@ -184,7 +186,6 @@ class Graph():
                 node.pathcost = best_edge.head.pathcost + best_edge.cost
                 node.next_node = best_edge.head
         print(f"Done in {round(time.time()-start_time,3)} seconds.\n")
-        return
 
     def plot(self):
         print_nodes = False
@@ -220,7 +221,7 @@ class Graph():
         time_list = list(range(len(soc_list)))
         fig, ax = plt.subplots(2,1, sharex=True, figsize=(10,6))
         end_time = self.start_time.add(hours=HORIZON).format('YYYY-MM-DD HH:mm')
-        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm')} to {end_time}\nCost: {round(self.source_node.pathcost/10,3)} $', fontsize=10)
+        fig.suptitle(f'From {self.start_time.format('YYYY-MM-DD HH:mm')} to {end_time}\nCost: {round(self.source_node.pathcost,3)} $', fontsize=10)
         # First plot
         ax[0].step(time_list, self.list_hp_energy+[self.list_hp_energy[-1]], where='post', color='tab:blue', label='HP', alpha=0.6)
         ax[0].step(time_list, self.list_load+[self.list_load[-1]], where='post', color='tab:red', label='Load', alpha=0.6)
@@ -229,9 +230,9 @@ class Graph():
         ax[0].legend(loc='upper left')
         ax2 = ax[0].twinx()
         ax2.step(time_list, self.list_elec_prices+[self.list_elec_prices[-1]], where='post', color='gray', alpha=0.6, label='Elec price')
-        ax2.set_ylabel('Electricity price [$/MWh]')
+        ax2.set_ylabel('Electricity price [cts/kWh]')
         ax2.legend(loc='upper right')
-        ax2.set_ylim([0,600])
+        ax2.set_ylim([0,60])
         if len(time_list)<50 and len(time_list)>10:
             ax[1].set_xticks(list(range(0,len(time_list)+1,2)))
         # Second plot
@@ -257,28 +258,26 @@ class Graph():
         plt.show()
 
     def bid(self):
-        max_node = max(self.edges[self.source_node], key=lambda x: x.cost)
-        min_node = min(self.edges[self.source_node], key=lambda x: x.cost)
-        bid = (max_node.cost - min_node.cost) / (max_node.energy_from_HP - min_node.energy_from_HP)
+        max_edge = max(self.edges[self.source_node], key=lambda x: x.cost)
+        min_edge = min(self.edges[self.source_node], key=lambda x: x.cost)
+        print(f"\nMax edge: {max_edge}")
+        print(f"Min edge: {min_edge}")
+        print(f"Energy from HP to reach min edge: {min_edge.energy_from_HP}\n")
+        bid = (min_edge.head.pathcost - max_edge.head.pathcost) / (max_edge.energy_from_HP - min_edge.energy_from_HP)
+        # If the house will be going cold if we don't buy electricty now, buy at any price?
+        if min_edge.head.top_temp==MIN_TOP_TEMP and min_edge.head.thermocline==1 and min_edge.energy_from_HP>1:
+            print("The house will go cold if we don't buy now.")
+            #bid = 10
         self.bid = bid
-        print(f"Bid {round(bid*100,2)} cts/kWh")
+        print(f"Buy electricity if it costs less than {round(bid*100,2)} cts/kWh\n")
+
 
 if __name__ == '__main__':
     
-    # import running
-
-    import pendulum
-    time_now = pendulum.datetime(2022, 12, 16, 21, 0, 0, tz='America/New_York')
+    time_now = pendulum.datetime(2022, 1, 1, 0, 0, 0, tz='America/New_York')
     state_now = Node(time_slice=0, top_temp=120, thermocline=600)
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
     g.bid()
-    g.plot()
-
-    # for n in g.nodes[1]:
-        # n.energy
-        # print(f"Path cost: {n.pathcost}, Next node: {n.next_node}")
-
-    # for e in g.edges[g.source_node]:
-    #     print(e)
+    # g.plot()
