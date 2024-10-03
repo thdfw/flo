@@ -37,6 +37,8 @@ def to_celcius(t):
 
 # Plot the approximation
 if __name__ == '__main__':
+    print(popt)
+
     oat_range = np.linspace(-10, 10, 100)
     lwt_range = np.linspace(60, 80, 100)
     oat_grid, lwt_grid = np.meshgrid(oat_range, lwt_range)

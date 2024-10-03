@@ -34,14 +34,19 @@ def get_price_jul24(row):
     
 df['oat'] = df['oat'].apply(lambda x: round(5/9 * (x-32),2))
 df['time'] = df['date_time'].dt.round('h')
-df['time'] = pd.to_datetime(df['time'], utc=True)
-df['time'] = df['time'].dt.tz_convert('America/New_York')
+df['time'] = pd.to_datetime(df['time'], utc=False)
+
 df.drop(columns=['date_time','hour'], inplace=True)
 df['hour'] = df['time'].dt.hour
-df['dayofweek'] = df['time'].dt.dayofweek
+print(df)
 df['day_type'] = df['time'].dt.dayofweek.apply(lambda x: 'weekend' if x >= 5 else 'weekday')
 df['jan24_prices'] = df.apply(get_price_jan24, axis=1)
 df['jul24_prices'] = df.apply(get_price_jul24, axis=1)
+df.drop(columns=['day_type','hour'], inplace=True)
+
+df['time'] = df['time'].astype('int64') // 10**9
+
+df.to_csv('yearly_data_2022.csv', index=False)
 
 def get_data(time_now, horizon):
     cropped_df = df[df.time >= time_now]

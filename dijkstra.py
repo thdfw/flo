@@ -3,8 +3,7 @@ import pendulum
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
-from past_data import get_data
-from cop import COP, to_celcius
+from utils import COP, to_celcius, get_data
 
 HORIZON_HOURS = 48
 NUM_LAYERS = 24
@@ -124,9 +123,9 @@ class Graph():
         min_edge_elec = min_edge.cost/self.elec_prices[0]*100
         bid = (min_edge.head.pathcost - max_edge.head.pathcost) / (max_edge_elec - min_edge_elec)
         if min_edge.head.top_temp==MIN_TOP_TEMP_F and min_edge.head.thermocline==1 and min_edge.heat_output_HP>1:
-            print(f"Warning: The house will go cold if we don't buy now (missing {round(min_edge.heat_output_HP,1)} kWh)")
+            print(f"Warning: The house will go cold if we don't buy now (minimum heat: {round(min_edge.heat_output_HP,1)} kWh)")
         self.bid = bid
-        print(f"Buy electricity if it costs less than {round(bid*100,2)} cts/kWh\n")
+        print(f"Bid price: {round(bid*100,2)} cts/kWh\n")
 
     def plot(self):
         self.list_toptemps = []
@@ -166,7 +165,7 @@ class Graph():
         ax2.set_ylabel('Electricity price [cts/kWh]')
         if min(self.elec_prices)>0: ax2.set_ylim([0,60])
         # Bottom plot
-        norm = Normalize(vmin=MIN_TOP_TEMP_F-TEMP_LIFT_F, vmax=MAX_TOP_TEMP_F)
+        norm = Normalize(vmin=MIN_TOP_TEMP_F-TEMP_LIFT_F-20, vmax=MAX_TOP_TEMP_F)
         cmap = matplotlib.colormaps['Reds']
         tank_top_colors = [cmap(norm(x)) for x in self.list_toptemps]
         tank_bottom_colors = [cmap(norm(x-TEMP_LIFT_F)) for x in self.list_toptemps]
@@ -192,8 +191,8 @@ class Graph():
 
 if __name__ == '__main__':
     
-    time_now = pendulum.datetime(2022, 1, 1, 0, 0, 0, tz='America/New_York')
-    state_now = Node(time_slice=0, top_temp=120, thermocline=6)
+    time_now = pendulum.datetime(2022, 2, 1, 0, 0, 0, tz='America/New_York')
+    state_now = Node(time_slice=0, top_temp=120, thermocline=24)
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
