@@ -16,6 +16,11 @@ HP_POWER = 12 # kW
 MASS_TANKS = 454.25*3 # kg
 SPECIFIC_HEAT_WATER = 4.187/3600 # kWh/kg/K
 
+OVERESTIME_LOAD = 0 # %
+PUNISH_LOW_HP = False
+ADD_MIN_HOURS = -5
+ADD_MAX_HOURS = -5
+
 
 class Node():
     def __init__(self, time_slice:int, top_temp:float, thermocline:float):
@@ -56,7 +61,14 @@ class Graph():
         self.get_forecasts()
         self.create_nodes()
         self.create_edges()
-        print(f"Done in {round(time.time()-timer,2)} seconds.\n")
+        # for h in range(HORIZON+1):
+        #     print(f"Hour {h} has {len(self.nodes[h])} nodes")
+        #     for n in self.nodes[h]:
+        #         print(f"-{n}")
+        #     print('')
+        #     if h==1:
+        #         break
+        print(f"Done in {round(time.time()-timer,1)} seconds.\n")
 
     def get_forecasts(self):
         df = get_data(self.start_time, HORIZON)
@@ -65,6 +77,7 @@ class Graph():
         # self.elec_prices = list(df.jul24_prices)
         self.oat = list(df.oat)
         self.load = list(df.load)
+        self.load = [self.load[0]] + [x*(1+OVERESTIME_LOAD/100) for x in self.load[1:]]
 
     def create_nodes(self):
         self.nodes = {}
@@ -76,6 +89,50 @@ class Graph():
                 for thermocline in [1] + list(range(100, NUM_LAYERS + 1, 100))
                 if (time_slice, top_temp, thermocline) != (0, self.source_node.top_temp, self.source_node.thermocline)
             )
+        
+        # Add the min and max nodes in the first time slice
+        for h in range(HORIZON+1):
+            for node in self.nodes[h]:
+                # Discharging: find node that minimizes heat_output_HP
+                if h<ADD_MIN_HOURS:
+                    thermoc = node.thermocline
+                    toptemp = node.top_temp
+                    while True:
+                        if thermoc==1:
+                            if toptemp-TEMP_DROP < MIN_TOP_TEMP:
+                                break
+                            toptemp = toptemp-TEMP_DROP
+                            thermoc = NUM_LAYERS
+                        node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                        energy_to_store = node_next.energy - node.energy
+                        if energy_to_store + self.load[h] < 0:
+                            thermoc += 1
+                            if thermoc == NUM_LAYERS+1:
+                                thermoc = 2
+                            break
+                        thermoc += -1
+                    min_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                    self.nodes[h+1].append(min_node)
+                # Charging: find node that maximizes heat_output_HP
+                if h < ADD_MAX_HOURS:
+                    thermoc = node.thermocline
+                    toptemp = node.top_temp
+                    while True:
+                        if thermoc==NUM_LAYERS:
+                            if toptemp+TEMP_LIFT > MAX_TOP_TEMP:
+                                break
+                            toptemp = toptemp+TEMP_LIFT
+                            thermoc = 1
+                        node_next = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                        energy_to_store = node_next.energy - node.energy
+                        if  energy_to_store + self.load[h] > HP_POWER:
+                            thermoc += -1
+                            if thermoc == 0:
+                                thermoc = NUM_LAYERS-1
+                            break
+                        thermoc += 1
+                    max_node = Node(h+1, thermocline=thermoc, top_temp=toptemp)
+                    self.nodes[h+1].append(max_node)
     
     def create_edges(self):
         self.edges = {}
@@ -90,6 +147,8 @@ class Graph():
                     if heat_output_HP <= HP_POWER and heat_output_HP>-0.5:
                         cop = COP(oat=self.oat[h], lwt=to_celcius(node_next.top_temp))
                         cost = self.elec_prices[h]/100 * heat_output_HP / cop
+                        if PUNISH_LOW_HP and h==0 and heat_output_HP < 2 and heat_output_HP > 0.05:
+                                cost += 1e9
                         if heat_to_store > 0:
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
@@ -200,4 +259,4 @@ if __name__ == '__main__':
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
     g.compute_bid()
-    g.plot()
+    # g.plot()
