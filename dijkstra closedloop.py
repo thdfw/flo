@@ -179,11 +179,9 @@ class Graph():
     def compute_bid(self):
         max_edge = max(self.edges[self.source_node], key=lambda x: x.cost)
         min_edge = min(self.edges[self.source_node], key=lambda x: x.cost)
-        cop_max_edge = COP(oat=self.oat[0], lwt=to_celcius(max_edge.head.top_temp))
-        cop_min_edge = COP(oat=self.oat[0], lwt=to_celcius(min_edge.head.top_temp))
-        max_edge_elec_input_HP = max_edge.heat_output_HP / cop_max_edge
-        min_edge_elec_input_HP = min_edge.heat_output_HP / cop_min_edge
-        bid = (min_edge.head.pathcost - max_edge.head.pathcost) / (max_edge_elec_input_HP - min_edge_elec_input_HP)
+        max_edge_elec = max_edge.cost/self.elec_prices[0]*100
+        min_edge_elec = min_edge.cost/self.elec_prices[0]*100
+        bid = (min_edge.head.pathcost - max_edge.head.pathcost) / (max_edge_elec - min_edge_elec)
         if min_edge.head.top_temp==MIN_TOP_TEMP_F and min_edge.head.thermocline==1 and min_edge.heat_output_HP>1:
             print(f"Warning: The house will go cold if we don't buy now (missing {round(min_edge.heat_output_HP,1)} kWh)")
         self.bid = bid
