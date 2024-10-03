@@ -59,5 +59,8 @@ if __name__ == '__main__':
     plt.legend()
     plt.ylim([0,0.6])
     plt.show()
+    plt.step(list(range(len(weekday_prices))), weekday_prices, where='post', alpha=0.5, label='Before')
+    plt.step(list(range(len(weekday_prices))), weekday_prices_jul24, where='post', alpha=0.5, label='After')
+    plt.show()
     time_now = pendulum.datetime(2022, 12, 4, 17, 0, 0, tz='America/New_York')
     print(get_data(time_now, 10))

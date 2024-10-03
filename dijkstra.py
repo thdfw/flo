@@ -126,7 +126,7 @@ class Graph():
         min_edge_elec_input_HP = min_edge.heat_output_HP / cop_min_edge
         bid = (min_edge.head.pathcost - max_edge.head.pathcost) / (max_edge_elec_input_HP - min_edge_elec_input_HP)
         if min_edge.head.top_temp==MIN_TOP_TEMP_F and min_edge.head.thermocline==1 and min_edge.heat_output_HP>1:
-            print(f"Warning: The house will go cold if we don't buy now (will not receive missing {round(min_edge.heat_output_HP,1)} kWh)")
+            print(f"Warning: The house will go cold if we don't buy now (missing {round(min_edge.heat_output_HP,1)} kWh)")
         self.bid = bid
         print(f"Buy electricity if it costs less than {round(bid*100,2)} cts/kWh\n")
 

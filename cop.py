@@ -27,7 +27,6 @@ popt, pcov = curve_fit(model, X_list, y)
 big_df['COP_approx'] = model(X_list, *popt)
 
 def COP(oat,lwt):
-    # return 2
     return model([oat,lwt], *popt)
 
 def to_fahrenheit(t):
