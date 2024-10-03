@@ -7,7 +7,7 @@ from past_data import get_data
 from cop import COP, to_celcius
 
 HORIZON_HOURS = 48
-NUM_LAYERS = 2400
+NUM_LAYERS = 24
 MIN_TOP_TEMP_F = 120
 MAX_TOP_TEMP_F = 180
 TEMP_LIFT_F = 20
@@ -73,7 +73,7 @@ class Graph():
             self.nodes[time_slice].extend(
                 Node(time_slice, top_temp, thermocline)
                 for top_temp in range(MIN_TOP_TEMP_F, MAX_TOP_TEMP_F+TEMP_LIFT_F, TEMP_LIFT_F) 
-                for thermocline in [1] + list(range(100, NUM_LAYERS + 1, 100))
+                for thermocline in [1] + list(range(1, NUM_LAYERS + 1, 1))
                 if (time_slice, top_temp, thermocline) != (0, self.source_node.top_temp, self.source_node.thermocline)
             )
     
@@ -195,7 +195,7 @@ class Graph():
 if __name__ == '__main__':
     
     time_now = pendulum.datetime(2022, 1, 1, 0, 0, 0, tz='America/New_York')
-    state_now = Node(time_slice=0, top_temp=120, thermocline=600)
+    state_now = Node(time_slice=0, top_temp=120, thermocline=6)
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
