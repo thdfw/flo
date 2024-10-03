@@ -1,13 +1,14 @@
 import time
+import numpy as np
 import pendulum
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
-from utils import COP, to_celcius, get_data
+from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
+from utils import COP, to_celcius, get_data, required_SWT
 
-HORIZON_HOURS = 48
+HORIZON_HOURS = 8750
 NUM_LAYERS = 24
-MIN_TOP_TEMP_F = 120
+MIN_TOP_TEMP_F = 80
 MAX_TOP_TEMP_F = 180
 TEMP_LIFT_F = 20
 TEMP_DROP_F = 20
@@ -60,10 +61,11 @@ class Graph():
     def get_forecasts(self):
         df = get_data(self.start_time, HORIZON_HOURS)
         self.elec_prices = list(df.elec_prices)
+        self.elec_prices = list(df.jul24_prices)
         self.elec_prices = list(df.jan24_prices)
-        # self.elec_prices = list(df.jul24_prices)
-        self.oat = list(df.oat)
         self.load = list(df.load)
+        self.oat = list(df.oat)
+        self.min_SWT = [required_SWT(x) for x in self.oat]
 
     def create_nodes(self):
         self.nodes = {}
@@ -79,12 +81,15 @@ class Graph():
     def create_edges(self):
         self.edges = {}
         min_energy = Node(0,MIN_TOP_TEMP_F,1).energy
+        energy_between_consecutive_states = Node(0,MIN_TOP_TEMP_F,2).energy - Node(0,MIN_TOP_TEMP_F,1).energy
         for h in range(HORIZON_HOURS):
             for node_now in self.nodes[h]:
                 self.edges[node_now] = []
                 for node_next in self.nodes[h+1]:
                     heat_to_store = node_next.energy - node_now.energy
                     losses = 0.005*(node_now.energy-min_energy)
+                    if losses<energy_between_consecutive_states and losses>0 and self.load[h]==0:
+                        losses = energy_between_consecutive_states
                     heat_output_HP = heat_to_store + self.load[h] + losses
                     if heat_output_HP <= HP_POWER_KW and heat_output_HP>-0.5:
                         cop = COP(oat=self.oat[h], lwt=to_celcius(node_next.top_temp))
@@ -95,6 +100,8 @@ class Graph():
                             if node_next.top_temp==node_now.top_temp+TEMP_LIFT_F:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
                         elif heat_to_store < 0:
+                            if self.load[h]>0 and (node_now.top_temp < self.min_SWT[h] or node_next.top_temp < self.min_SWT[h]):
+                                continue
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
                             if node_next.top_temp==node_now.top_temp-TEMP_DROP_F:
@@ -165,7 +172,7 @@ class Graph():
         ax2.set_ylabel('Electricity price [cts/kWh]')
         if min(self.elec_prices)>0: ax2.set_ylim([0,60])
         # Bottom plot
-        norm = Normalize(vmin=MIN_TOP_TEMP_F-TEMP_LIFT_F-20, vmax=MAX_TOP_TEMP_F)
+        norm = Normalize(vmin=MIN_TOP_TEMP_F-TEMP_LIFT_F, vmax=MAX_TOP_TEMP_F)
         cmap = matplotlib.colormaps['Reds']
         tank_top_colors = [cmap(norm(x)) for x in self.list_toptemps]
         tank_bottom_colors = [cmap(norm(x-TEMP_LIFT_F)) for x in self.list_toptemps]
@@ -182,17 +189,27 @@ class Graph():
         ax3.plot(list_time, list_soc, color='black', alpha=0.4, label='SoC')
         ax3.set_ylabel('State of charge [%]')
         ax3.set_ylim([-1,101])
+        # ax[2].plot(list_time, self.oat)
+        # ax[2].plot(list_time, self.min_SWT)
+        # import bisect  
+        # values = [120,140,160,180]
+        # ax[2].plot(list_time, [values[ bisect.bisect_left(values, x)] if  bisect.bisect_left(values, x) < len(values) else None for x in self.min_SWT])
         # Color bar
+        boundaries = np.arange(MIN_TOP_TEMP_F - TEMP_LIFT_F*1.5, MAX_TOP_TEMP_F + TEMP_LIFT_F*1.5, TEMP_LIFT_F)
+        colors = [plt.cm.Reds(i/(len(boundaries)-1)) for i in range(len(boundaries))]
+        cmap = ListedColormap(colors)
+        norm = BoundaryNorm(boundaries, cmap.N, clip=True)
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.025, pad=0.15, alpha=0.7)
+        cbar.set_ticks(range(MIN_TOP_TEMP_F-TEMP_LIFT_F, MAX_TOP_TEMP_F + TEMP_LIFT_F, TEMP_LIFT_F))
         cbar.set_label('Temperature [F]')
         plt.show()
 
 
 if __name__ == '__main__':
     
-    time_now = pendulum.datetime(2022, 2, 1, 0, 0, 0, tz='America/New_York')
-    state_now = Node(time_slice=0, top_temp=120, thermocline=24)
+    time_now = pendulum.datetime(2022, 1, 1, 0, 0, 0, tz='America/New_York')
+    state_now = Node(time_slice=0, top_temp=MAX_TOP_TEMP_F, thermocline=NUM_LAYERS/2)
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
