@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
 from utils import COP, to_celcius, get_data, required_SWT
 
-HORIZON_HOURS = 8750
+HORIZON_HOURS = 8759
 NUM_LAYERS = 24
 MIN_TOP_TEMP_F = 80
 MAX_TOP_TEMP_F = 180
@@ -23,7 +23,7 @@ class Node():
         self.top_temp = top_temp
         self.thermocline = thermocline
         self.energy = self.get_energy()
-        self.pathcost = 0 if time_slice==HORIZON_HOURS else int(1e9)
+        self.pathcost = 0 if time_slice==HORIZON_HOURS else 1e9
         self.next_node = None
 
     def __repr__(self):
@@ -189,11 +189,6 @@ class Graph():
         ax3.plot(list_time, list_soc, color='black', alpha=0.4, label='SoC')
         ax3.set_ylabel('State of charge [%]')
         ax3.set_ylim([-1,101])
-        # ax[2].plot(list_time, self.oat)
-        # ax[2].plot(list_time, self.min_SWT)
-        # import bisect  
-        # values = [120,140,160,180]
-        # ax[2].plot(list_time, [values[ bisect.bisect_left(values, x)] if  bisect.bisect_left(values, x) < len(values) else None for x in self.min_SWT])
         # Color bar
         boundaries = np.arange(MIN_TOP_TEMP_F - TEMP_LIFT_F*1.5, MAX_TOP_TEMP_F + TEMP_LIFT_F*1.5, TEMP_LIFT_F)
         colors = [plt.cm.Reds(i/(len(boundaries)-1)) for i in range(len(boundaries))]
