@@ -12,10 +12,16 @@ def COP(oat,lwt):
 def to_celcius(t):
     return (t-32)*5/9
 
+def to_fahrenheit(t):
+    return t*9/5+32
+
 def required_SWT(oat):
     return 160-2*(oat+15) if oat<5 else 120
     
 # import matplotlib.pyplot as plt
 # oats = list(range(-15,20,1))
-# plt.plot(oats, [min_SWT(x) for x in oats])
+# oats = [to_fahrenheit(x) for x in oats]
+# plt.plot(oats, [required_SWT(to_ceclius(x)) for x in oats])
+# plt.xlabel('Outside air temperature [F]')
+# plt.ylabel('Minimum SWT [F]')
 # plt.show()
