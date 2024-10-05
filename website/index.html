@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <title>Thermostats</title>
+
+    <script>
+        function RequestPassword() {
+            var password;
+            do {
+                password = prompt("Enter password:");
+                if (password !== "banana") {
+                    alert("Incorrect password.");
+                }
+            } while (password !== "banana");
+
+            // Show content after correct password is entered
+            document.getElementById("content").style.display = "block";
+        }
+    </script>
+
+</head>
+
+<body onload="RequestPassword()">
+    <div id="content" style="display: none;">
+        <p>Hey there</p>
+        <table border="1" style="width: 100%; margin-top: 20px; text-align: left;">
+            <thead>
+                <tr>
+                    <th>Zone Name</th>
+                    <th>Setpoint (F)</th>
+                    <th>Temperature (F)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Living Room</td>
+                    <td>72</td>
+                    <td>70</td>
+                </tr>
+                <tr>
+                    <td>Bedroom</td>
+                    <td>68</td>
+                    <td>67</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+
+</html>
