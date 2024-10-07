@@ -32,12 +32,20 @@
     </style>
     
     <script>
-        async function fetchTemperatureData(house_alias) {
+        async function fetchTemperatureData(house_alias, password) {
             try {
-                const response = await fetch(`http://198.128.203.195:8000/thermostats/${house_alias}`);
+                const response = await fetch(`http://198.128.203.195:8000/thermostats/${house_alias}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password: password })
+                });
+                
                 if (!response.ok) {
                     throw new Error('Network response was not ok');
                 }
+
                 const temperatureData = await response.json();
                 populateTable(temperatureData);
             } catch (error) {
@@ -86,19 +94,10 @@
         }
 
         function HousePassword() {
+            var house_alias = prompt("Enter house alias:");
+            var password = prompt("Enter password:");
 
-            var house_alias;
-            house_alias = prompt("Enter house alias:");
-
-            var password;
-            do {
-                password = prompt("Enter password:");
-                if (password !== "banana") {
-                    alert("Incorrect password.");
-                }
-            } while (password !== "banana");
-
-            fetchTemperatureData(house_alias);
+            fetchTemperatureData(house_alias, password);
             document.getElementById("houseAliasHeader").textContent = `Thermostat data for ${house_alias}`;
             document.getElementById("content").style.display = "block";
         }

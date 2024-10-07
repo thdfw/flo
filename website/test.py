@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import dotenv
 import pendulum
 from sqlalchemy import create_engine, desc
@@ -8,6 +9,7 @@ from gjk.config import Settings
 from gjk.models import MessageSql
 
 settings = Settings(_env_file=dotenv.find_dotenv())
+print(settings)
 engine = create_engine(settings.db_url.get_secret_value())
 Session = sessionmaker(bind=engine)
 
@@ -16,14 +18,23 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change this to specific origins in production for security
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/thermostats/{house_alias}")
-async def get_latest_temperature(house_alias: str):
+VALID_PASSWORD = "thomas"
+
+class ThermostatRequest(BaseModel):
+    password: str
+
+@app.post("/thermostats/{house_alias}")
+async def get_latest_temperature(house_alias: str, request: ThermostatRequest):
+
+    if request.password != VALID_PASSWORD:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
     session = Session()
     timezone = "America/New_York"
     start = pendulum.datetime(2022, 1, 1, 0, 0, tz=timezone)
