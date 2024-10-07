@@ -1,6 +1,7 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import dotenv
 import pendulum
-from fastapi import FastAPI, HTTPException
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker
 from gjk.config import Settings
@@ -12,11 +13,18 @@ Session = sessionmaker(bind=engine)
 
 app = FastAPI()
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change this to specific origins in production for security
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/thermostats/{house_alias}")
 async def get_latest_temperature(house_alias: str):
-    
     session = Session()
-
     timezone = "America/New_York"
     start = pendulum.datetime(2022, 1, 1, 0, 0, tz=timezone)
     start_ms = int(start.timestamp() * 1000)
@@ -28,7 +36,7 @@ async def get_latest_temperature(house_alias: str):
 
     if not last_message:
         raise HTTPException(status_code=404, detail="No messages found.")
-                    
+
     temperature_data = []
     for elem in last_message.payload['DataChannelList']:
         if 'zone' in elem['Name'] and 'gw' not in elem['Name']:

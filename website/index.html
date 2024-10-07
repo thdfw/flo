@@ -5,8 +5,62 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta charset="UTF-8">
     <title>Thermostats</title>
-
+    
     <script>
+        async function fetchTemperatureData(houseAlias) {
+            try {
+                const response = await fetch(`http://198.128.203.195:8000/thermostats/${houseAlias}`);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const temperatureData = await response.json();
+                populateTable(temperatureData);
+            } catch (error) {
+                console.error('Error fetching temperature data:', error);
+                alert('Error fetching temperature data.');
+            }
+        }
+
+        function populateTable(data) {
+            const tbody = document.getElementById("temperature-data");
+            tbody.innerHTML = ""; // Clear any existing rows
+
+            const zones = {};
+
+            // Aggregate setpoints and temperatures
+            data.forEach(item => {
+                const parts = item.zone.split('-'); // Split by hyphen
+                const zoneBase = parts.slice(0, parts.length - 1).join('-'); // Join all but the last part
+
+                if (item.zone.includes('set')) {
+                    zones[zoneBase] = zones[zoneBase] || {};
+                    zones[zoneBase].setpoint = item.temperature; // Use temperature as setpoint
+                } else if (item.zone.includes('temp')) {
+                    zones[zoneBase] = zones[zoneBase] || {};
+                    zones[zoneBase].temperature = item.temperature; // Use temperature directly
+                }
+            });
+
+            // Create rows for the table
+            for (const zone in zones) {
+                const row = document.createElement("tr");
+
+                const zoneCell = document.createElement("td");
+                zoneCell.textContent = zone;
+                row.appendChild(zoneCell);
+
+                const setpointCell = document.createElement("td");
+                setpointCell.textContent = zones[zone].setpoint !== undefined ? zones[zone].setpoint.toFixed(1) : "N/A"; // Display setpoint or N/A
+                row.appendChild(setpointCell);
+
+                const temperatureCell = document.createElement("td");
+                temperatureCell.textContent = zones[zone].temperature !== undefined ? zones[zone].temperature.toFixed(1) : "N/A"; // Display temperature or N/A
+                row.appendChild(temperatureCell);
+
+                tbody.appendChild(row);
+            }
+        }
+
         function RequestPassword() {
             var password;
             do {
@@ -18,6 +72,7 @@
 
             // Show content after correct password is entered
             document.getElementById("content").style.display = "block";
+            fetchTemperatureData('oak');
         }
     </script>
 
@@ -25,26 +80,15 @@
 
 <body onload="RequestPassword()">
     <div id="content" style="display: none;">
-        <p>Hey there</p>
         <table border="1" style="width: 100%; margin-top: 20px; text-align: left;">
             <thead>
                 <tr>
-                    <th>Zone Name</th>
+                    <th>Zone</th>
                     <th>Setpoint (F)</th>
                     <th>Temperature (F)</th>
                 </tr>
             </thead>
-            <tbody>
-                <tr>
-                    <td>Living Room</td>
-                    <td>72</td>
-                    <td>70</td>
-                </tr>
-                <tr>
-                    <td>Bedroom</td>
-                    <td>68</td>
-                    <td>67</td>
-                </tr>
+            <tbody id="temperature-data">
             </tbody>
         </table>
     </div>
