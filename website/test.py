@@ -39,7 +39,7 @@ async def get_latest_temperature(house_alias: str):
 
     temperature_data = []
     for elem in last_message.payload['DataChannelList']:
-        if 'zone' in elem['Name'] and 'gw' not in elem['Name']:
+        if 'zone' in elem['Name'] and 'gw' not in elem['Name'] and ('temp' in elem['Name'] or 'set' in elem['Name']):
             zone_name = elem['Name']
             for reading in last_message.payload['ChannelReadingList']:
                 if reading['ChannelId'] == elem['Id']:
