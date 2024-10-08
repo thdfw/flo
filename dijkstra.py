@@ -5,16 +5,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
 from utils import COP, to_celcius, get_data, required_SWT
-
-HORIZON_HOURS = 8759
-NUM_LAYERS = 24
-MIN_TOP_TEMP_F = 80
-MAX_TOP_TEMP_F = 180
-TEMP_LIFT_F = 20
-TEMP_DROP_F = 20
-HP_POWER_KW = 12
-MASS_TANKS_KG = 454.25*3
-SPECIFIC_HEAT_WATER = 4.187/3600 # kWh/kg/K
+from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, NUM_LAYERS, 
+                   MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, LOSSES_PERCENT, 
+                   CONSTANT_COP, TOU_RATES, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE)
 
 
 class Node():
@@ -30,10 +23,10 @@ class Node():
         return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}]"
 
     def get_energy(self):
-        m_layer = MASS_TANKS_KG / NUM_LAYERS
-        energy_above = self.thermocline*m_layer * SPECIFIC_HEAT_WATER * to_celcius(self.top_temp)
-        energy_below = (NUM_LAYERS-self.thermocline)*m_layer * SPECIFIC_HEAT_WATER * to_celcius(self.top_temp - TEMP_LIFT_F)
-        return energy_above + energy_below
+        m_layer_kg = STORAGE_VOLUME_GALLONS * 3.785 / NUM_LAYERS
+        energy_above_kWh = self.thermocline*m_layer_kg * 4.187/3600 * to_celcius(self.top_temp)
+        energy_below_kWh = (NUM_LAYERS-self.thermocline)*m_layer_kg * 4.187/3600 * to_celcius(self.top_temp - TEMP_LIFT_F)
+        return energy_above_kWh + energy_below_kWh
 
 
 class Edge():
@@ -60,12 +53,13 @@ class Graph():
 
     def get_forecasts(self):
         df = get_data(self.start_time, HORIZON_HOURS)
-        self.elec_prices = list(df.elec_prices)
-        self.elec_prices = list(df.jul24_prices)
-        self.elec_prices = list(df.jan24_prices)
-        self.load = list(df.load)
+        if TOU_RATES == 'old':
+            self.elec_prices = list(df.jan24_prices)
+        elif TOU_RATES == 'new':
+            self.elec_prices = list(df.jul24_prices)
         self.oat = list(df.oat)
-        self.min_SWT = [required_SWT(x) for x in self.oat]
+        self.load = list(df.load)
+        self.min_SWT = [required_SWT(x) for x in self.load]
 
     def create_nodes(self):
         self.nodes = {}
@@ -87,12 +81,12 @@ class Graph():
                 self.edges[node_now] = []
                 for node_next in self.nodes[h+1]:
                     heat_to_store = node_next.energy - node_now.energy
-                    losses = 0.005*(node_now.energy-min_energy)
+                    losses = LOSSES_PERCENT/100*(node_now.energy-min_energy)
                     if losses<energy_between_consecutive_states and losses>0 and self.load[h]==0:
                         losses = energy_between_consecutive_states
                     heat_output_HP = heat_to_store + self.load[h] + losses
-                    if heat_output_HP <= HP_POWER_KW and heat_output_HP>-0.5:
-                        cop = COP(oat=self.oat[h], lwt=to_celcius(node_next.top_temp))
+                    if heat_output_HP <= MAX_HP_POWER_KW and heat_output_HP >= MIN_HP_POWER_KW:
+                        cop = COP(oat=self.oat[h], lwt=to_celcius(node_next.top_temp)) if CONSTANT_COP==0 else CONSTANT_COP
                         cost = self.elec_prices[h]/100 * heat_output_HP / cop
                         if heat_to_store > 0:
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
@@ -104,7 +98,7 @@ class Graph():
                                 continue
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
-                            if node_next.top_temp==node_now.top_temp-TEMP_DROP_F:
+                            if node_next.top_temp==node_now.top_temp-TEMP_LIFT_F:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
                         else:
                             self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
@@ -190,21 +184,21 @@ class Graph():
         ax3.set_ylabel('State of charge [%]')
         ax3.set_ylim([-1,101])
         # Color bar
-        boundaries = np.arange(MIN_TOP_TEMP_F - TEMP_LIFT_F*1.5, MAX_TOP_TEMP_F + TEMP_LIFT_F*1.5, TEMP_LIFT_F)
+        boundaries = np.arange(MIN_TOP_TEMP_F-TEMP_LIFT_F*1.5, MAX_TOP_TEMP_F+TEMP_LIFT_F*1.5, TEMP_LIFT_F)
         colors = [plt.cm.Reds(i/(len(boundaries)-1)) for i in range(len(boundaries))]
         cmap = ListedColormap(colors)
         norm = BoundaryNorm(boundaries, cmap.N, clip=True)
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.025, pad=0.15, alpha=0.7)
-        cbar.set_ticks(range(MIN_TOP_TEMP_F-TEMP_LIFT_F, MAX_TOP_TEMP_F + TEMP_LIFT_F, TEMP_LIFT_F))
+        cbar.set_ticks(range(MIN_TOP_TEMP_F-TEMP_LIFT_F, MAX_TOP_TEMP_F+TEMP_LIFT_F, TEMP_LIFT_F))
         cbar.set_label('Temperature [F]')
         plt.show()
 
 
 if __name__ == '__main__':
     
-    time_now = pendulum.datetime(2022, 1, 1, 0, 0, 0, tz='America/New_York')
-    state_now = Node(time_slice=0, top_temp=MAX_TOP_TEMP_F, thermocline=NUM_LAYERS/2)
+    time_now = START_TIME
+    state_now = Node(time_slice=0, top_temp=START_TOP_TEMP_F, thermocline=START_THERMOCLINE)
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
