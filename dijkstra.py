@@ -1,10 +1,12 @@
 import time
 import numpy as np
+import pandas as pd
 import pendulum
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
-from utils import COP, to_celcius, get_data, required_SWT
+from openpyxl.styles import PatternFill
+from utils import COP, to_celcius, to_fahrenheit, get_data, required_SWT
 from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, NUM_LAYERS, 
                    MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, LOSSES_PERCENT, 
                    CONSTANT_COP, TOU_RATES, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE)
@@ -18,6 +20,7 @@ class Node():
         self.energy = self.get_energy()
         self.pathcost = 0 if time_slice==HORIZON_HOURS else 1e9
         self.next_node = None
+        self.index=None
 
     def __repr__(self):
         return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}]"
@@ -68,13 +71,16 @@ class Graph():
             self.nodes[time_slice].extend(
                 Node(time_slice, top_temp, thermocline)
                 for top_temp in range(MIN_TOP_TEMP_F, MAX_TOP_TEMP_F+TEMP_LIFT_F, TEMP_LIFT_F) 
-                for thermocline in [1] + list(range(1, NUM_LAYERS + 1, 1))
+                for thermocline in list(range(NUM_LAYERS+1))
                 if (time_slice, top_temp, thermocline) != (0, self.source_node.top_temp, self.source_node.thermocline)
             )
+            nodes_by_energy = sorted(self.nodes[time_slice], key=lambda x: x.energy, reverse=True)
+            for n in self.nodes[time_slice]:
+                n.index = nodes_by_energy.index(n)+1
     
     def create_edges(self):
         self.edges = {}
-        min_energy = Node(0,MIN_TOP_TEMP_F,1).energy
+        min_energy = Node(0,MIN_TOP_TEMP_F,0).energy
         energy_between_consecutive_states = Node(0,MIN_TOP_TEMP_F,2).energy - Node(0,MIN_TOP_TEMP_F,1).energy
         for h in range(HORIZON_HOURS):
             for node_now in self.nodes[h]:
@@ -145,7 +151,7 @@ class Graph():
         self.list_thermoclines.append(node_i.thermocline)
         self.list_hp_energy.append(edge_i.heat_output_HP)
         self.list_storage_energy.append(node_i.energy)
-        min_energy = Node(0,MIN_TOP_TEMP_F,1).energy
+        min_energy = Node(0,MIN_TOP_TEMP_F,0).energy
         max_energy = Node(0,MAX_TOP_TEMP_F,NUM_LAYERS).energy
         list_soc = [(x-min_energy)/(max_energy-min_energy)*100 for x in self.list_storage_energy]
         # Plot the shortest path
@@ -194,6 +200,44 @@ class Graph():
         cbar.set_label('Temperature [F]')
         plt.show()
 
+    def export_excel(self):
+        import warnings 
+        warnings.filterwarnings("ignore")
+        # First dataframe: the Dijkstra graph
+        df = pd.DataFrame()
+        nodes_by_energy = sorted(self.nodes[0], key=lambda x: (x.energy, x.top_temp), reverse=True)
+        df['Top Temp [F]'] = [x.top_temp for x in nodes_by_energy]
+        df['Thermocline'] = [x.thermocline for x in nodes_by_energy]
+        df['Index'] = list(range(1,len(df)+1))
+        for h in range(HORIZON_HOURS):
+            df[h] = [[x.next_node.index, round(x.pathcost,2)] for x in sorted(self.nodes[h], key=lambda node: node.index, reverse=True)]
+        df[HORIZON_HOURS] = [[0,0] for x in g.nodes[HORIZON_HOURS]]
+        # Second dataframe: the forecasts
+        df2 = pd.DataFrame({'Forecast':['0'], **{h: [0.0] for h in range(HORIZON_HOURS+1)}})
+        df2.loc[0] = ['Price [cts/kWh]'] + g.elec_prices
+        df2.loc[1] = ['Load [kW]'] + g.load
+        df2.loc[2] = ['OAT [F]'] +[round(to_fahrenheit(x)) for x in g.oat]
+        df2.loc[3] = ['Required SWT [F]'] +[round(x) for x in g.min_SWT]
+        df2.reset_index(inplace=True, drop=True)
+        # Highlight shortest path
+        highlight_positions = []
+        node_i = g.source_node
+        while node_i.next_node is not None:
+            highlight_positions.append((node_i.index+len(df2)+2, 3+node_i.time_slice))
+            node_i = node_i.next_node
+        highlight_positions.append((node_i.index+len(df2)+2, 3+node_i.time_slice))
+        # Export excel
+        with pd.ExcelWriter('dijkstra_result.xlsx', engine='openpyxl') as writer:
+            df2.to_excel(writer, index=False, startcol=2, sheet_name='Sheet1')
+            df.to_excel(writer, index=False, startrow=len(df2)+2, sheet_name='Sheet1')
+            worksheet = writer.sheets['Sheet1']
+            worksheet.column_dimensions['A'].width = 15
+            worksheet.column_dimensions['B'].width = 15
+            worksheet.column_dimensions['C'].width = 15
+            highlight_fill = PatternFill(start_color='72ba93', end_color='72ba93', fill_type='solid')
+            for row, col in highlight_positions:
+                worksheet.cell(row=row+1, column=col+1).fill = highlight_fill
+
 
 if __name__ == '__main__':
     
@@ -202,5 +246,6 @@ if __name__ == '__main__':
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
+    g.export_excel()
     g.compute_bid()
     g.plot()
