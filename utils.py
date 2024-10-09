@@ -21,6 +21,9 @@ START_THERMOCLINE = config.getint('parameters', 'START_THERMOCLINE')
 ROOM_TEMPERATURE_F = config.getfloat('parameters', 'ROOM_TEMPERATURE_F')
 DD_SWT_F = config.getfloat('parameters', 'DD_SWT_F')
 DD_POWER_KW = config.getfloat('parameters', 'DD_POWER_KW')
+SHOW_PLOT = config.getboolean('parameters', 'SHOW_PLOT')
+
+NOW_FOR_FILE = pendulum.now().strftime("%Y:%m:%d_%H-%M-%S")
 
 df = pd.read_csv('yearly_data_2022.csv')
 

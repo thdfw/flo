@@ -1,4 +1,6 @@
+import os
 import time
+import shutil
 import numpy as np
 import pandas as pd
 import pendulum
@@ -10,7 +12,8 @@ from openpyxl.styles import PatternFill
 from utils import COP, to_celcius, to_fahrenheit, get_data, required_SWT
 from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, NUM_LAYERS, 
                    MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, LOSSES_PERCENT, 
-                   CONSTANT_COP, TOU_RATES, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE)
+                   CONSTANT_COP, TOU_RATES, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE,
+                   SHOW_PLOT, NOW_FOR_FILE)
 
 
 class Node():
@@ -21,7 +24,7 @@ class Node():
         self.energy = self.get_energy()
         self.pathcost = 0 if time_slice==HORIZON_HOURS else 1e9
         self.next_node = None
-        self.index=None
+        self.index = None
 
     def __repr__(self):
         return f"Node[time_slice:{self.time_slice}, top_temp:{self.top_temp}, thermocline:{self.thermocline}]"
@@ -199,9 +202,16 @@ class Graph():
         cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', fraction=0.025, pad=0.15, alpha=0.7)
         cbar.set_ticks(range(MIN_TOP_TEMP_F-TEMP_LIFT_F, MAX_TOP_TEMP_F+TEMP_LIFT_F, TEMP_LIFT_F))
         cbar.set_label('Temperature [F]')
-        plt.show()
+        folder_name = f'results/result_{NOW_FOR_FILE}'
+        plot_path = os.path.join(folder_name, 'plot.png')
+        os.makedirs(folder_name, exist_ok=True)
+        plt.savefig(plot_path, dpi=500)
+        if SHOW_PLOT:
+            plt.show()
 
     def export_excel(self):
+        print("Exporting to Excel...")
+        start_time = time.time()
         warnings.filterwarnings("ignore")
         # First dataframe: the Dijkstra graph
         df = pd.DataFrame()
@@ -227,7 +237,11 @@ class Graph():
             node_i = node_i.next_node
         highlight_positions.append((node_i.index+len(df2)+2, 3+node_i.time_slice))
         # Export excel
-        with pd.ExcelWriter('dijkstra_result.xlsx', engine='openpyxl') as writer:
+        folder_name = f'results/result_{NOW_FOR_FILE}'
+        file_path = os.path.join(folder_name, 'output.xlsx')
+        os.makedirs(folder_name, exist_ok=True)
+        shutil.copy('parameters.conf', folder_name)
+        with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
             df2.to_excel(writer, index=False, startcol=2, sheet_name='Sheet1')
             df.to_excel(writer, index=False, startrow=len(df2)+2, sheet_name='Sheet1')
             worksheet = writer.sheets['Sheet1']
@@ -237,6 +251,7 @@ class Graph():
             highlight_fill = PatternFill(start_color='72ba93', end_color='72ba93', fill_type='solid')
             for row, col in highlight_positions:
                 worksheet.cell(row=row+1, column=col+1).fill = highlight_fill
+        print(f"Done in {round(time.time()-start_time,2)} seconds.\n")
 
 
 if __name__ == '__main__':
@@ -247,5 +262,5 @@ if __name__ == '__main__':
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
     g.export_excel()
-    g.compute_bid()
     g.plot()
+    # g.compute_bid()
