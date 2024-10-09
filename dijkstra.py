@@ -2,6 +2,7 @@ import time
 import numpy as np
 import pandas as pd
 import pendulum
+import warnings
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
@@ -201,7 +202,6 @@ class Graph():
         plt.show()
 
     def export_excel(self):
-        import warnings 
         warnings.filterwarnings("ignore")
         # First dataframe: the Dijkstra graph
         df = pd.DataFrame()
