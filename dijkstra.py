@@ -221,7 +221,7 @@ class Graph():
         df['Thermocline'] = [x.thermocline for x in nodes_by_energy]
         df['Index'] = list(range(1,len(df)+1))
         for h in range(HORIZON_HOURS):
-            df[h] = [[x.next_node.index, round(x.pathcost,2)] for x in sorted(self.nodes[h], key=lambda node: node.index, reverse=True)]
+            df[h] = [[round(x.pathcost,2), x.next_node.index] for x in sorted(self.nodes[h], key=lambda node: node.index, reverse=False)]
         df[HORIZON_HOURS] = [[0,0] for x in g.nodes[HORIZON_HOURS]]
         # Second dataframe: the forecasts
         df2 = pd.DataFrame({'Forecast':['0'], **{h: [0.0] for h in range(HORIZON_HOURS+1)}})
@@ -262,6 +262,6 @@ if __name__ == '__main__':
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
-    g.export_excel()
     g.plot()
+    g.export_excel()
     # g.compute_bid()
