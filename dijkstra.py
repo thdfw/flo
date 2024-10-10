@@ -93,7 +93,7 @@ class Graph():
                     heat_to_store = node_next.energy - node_now.energy
                     losses = LOSSES_PERCENT/100*(node_now.energy-min_energy)
                     if losses<energy_between_consecutive_states and losses>0 and self.load[h]==0:
-                        losses = energy_between_consecutive_states
+                        losses = energy_between_consecutive_states + 1/1e9
                     heat_output_HP = heat_to_store + self.load[h] + losses
                     if heat_output_HP <= MAX_HP_POWER_KW and heat_output_HP >= MIN_HP_POWER_KW:
                         cop = COP(oat=self.oat[h], lwt=to_celcius(node_next.top_temp)) if CONSTANT_COP==0 else CONSTANT_COP
@@ -104,8 +104,9 @@ class Graph():
                             if node_next.top_temp==node_now.top_temp+TEMP_LIFT_F:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
                         elif heat_to_store < 0:
-                            if self.load[h]>0 and (node_now.top_temp < self.min_SWT[h] or node_next.top_temp < self.min_SWT[h]):
-                                continue
+                            if heat_output_HP < self.load[h]:
+                                 if self.load[h]>0 and (node_now.top_temp < self.min_SWT[h] or node_next.top_temp < self.min_SWT[h]):
+                                     continue
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
                             if node_next.top_temp==node_now.top_temp-TEMP_LIFT_F:
