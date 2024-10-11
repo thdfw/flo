@@ -32,7 +32,7 @@ def get_data(time_now, horizon):
     return df[(df.time >= time_now) & (df.time <= time_now + horizon * 3600)]
 
 def COP(oat,lwt):
-    return 2.42213946 + 0.02055517*oat -0.00819491*lwt
+    return 2.35607707 + 0.0232784*oat -0.00671242*lwt
 
 def to_celcius(t):
     return (t-32)*5/9

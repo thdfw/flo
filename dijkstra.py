@@ -4,7 +4,6 @@ import shutil
 import numpy as np
 import pandas as pd
 import pendulum
-import warnings
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
@@ -15,6 +14,7 @@ from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, N
                    CONSTANT_COP, TOU_RATES, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE,
                    SHOW_PLOT, NOW_FOR_FILE)
 
+SOFT_CONSTRAINT = False
 
 class Node():
     def __init__(self, time_slice:int, top_temp:float, thermocline:float):
@@ -78,7 +78,7 @@ class Graph():
                 for thermocline in list(range(NUM_LAYERS+1))
                 if (time_slice, top_temp, thermocline) != (0, self.source_node.top_temp, self.source_node.thermocline)
             )
-            nodes_by_energy = sorted(self.nodes[time_slice], key=lambda x: x.energy, reverse=True)
+            nodes_by_energy = sorted(self.nodes[time_slice], key=lambda x: (x.energy, x.top_temp), reverse=True)
             for n in self.nodes[time_slice]:
                 n.index = nodes_by_energy.index(n)+1
     
@@ -106,7 +106,10 @@ class Graph():
                         elif heat_to_store < 0:
                             if heat_output_HP < self.load[h]:
                                  if self.load[h]>0 and (node_now.top_temp < self.min_SWT[h] or node_next.top_temp < self.min_SWT[h]):
-                                     continue
+                                    if SOFT_CONSTRAINT:
+                                         cost += 1e5
+                                    else:
+                                        continue
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
                             if node_next.top_temp==node_now.top_temp-TEMP_LIFT_F:
@@ -129,13 +132,11 @@ class Graph():
         print(f"Done in {round(time.time()-start_time,3)} seconds.\n")
 
     def compute_bid(self):
-        max_edge = max(self.edges[self.source_node], key=lambda x: x.cost)
-        min_edge = min(self.edges[self.source_node], key=lambda x: x.cost)
+        max_edge = max(self.edges[self.source_node], key=lambda x: x.heat_output_HP)
+        min_edge = min(self.edges[self.source_node], key=lambda x: x.heat_output_HP)
         max_edge_elec = max_edge.cost/self.elec_prices[0]*100
         min_edge_elec = min_edge.cost/self.elec_prices[0]*100
         bid = (min_edge.head.pathcost - max_edge.head.pathcost) / (max_edge_elec - min_edge_elec)
-        if min_edge.head.top_temp==MIN_TOP_TEMP_F and min_edge.head.thermocline==1 and min_edge.heat_output_HP>1:
-            print(f"Warning: The house will go cold if we don't buy now (minimum heat: {round(min_edge.heat_output_HP,1)} kWh)")
         self.bid = bid
         print(f"Bid price: {round(bid*100,2)} cts/kWh\n")
 
@@ -213,38 +214,37 @@ class Graph():
     def export_excel(self):
         print("Exporting to Excel...")
         start_time = time.time()
-        warnings.filterwarnings("ignore")
         # First dataframe: the Dijkstra graph
-        df = pd.DataFrame()
-        nodes_by_energy = sorted(self.nodes[0], key=lambda x: (x.energy, x.top_temp), reverse=True)
-        df['Top Temp [F]'] = [x.top_temp for x in nodes_by_energy]
-        df['Thermocline'] = [x.thermocline for x in nodes_by_energy]
-        df['Index'] = list(range(1,len(df)+1))
+        dijkstra_dict = {}
+        dijkstra_dict['Top Temp [F]'] = [x.top_temp for x in self.nodes_by_energy]
+        dijkstra_dict['Thermocline'] = [x.thermocline for x in self.nodes_by_energy]
+        dijkstra_dict['Index'] = list(range(1,len(self.nodes_by_energy)+1))
         for h in range(HORIZON_HOURS):
-            df[h] = [[round(x.pathcost,2), x.next_node.index] for x in sorted(self.nodes[h], key=lambda node: node.index, reverse=False)]
-        df[HORIZON_HOURS] = [[0,0] for x in g.nodes[HORIZON_HOURS]]
+            dijkstra_dict[h] = [[round(x.pathcost,2), x.next_node.index] for x in sorted(self.nodes[h], key=lambda x: x.index)]
+        dijkstra_dict[HORIZON_HOURS] = [[0,0] for x in g.nodes[HORIZON_HOURS]]
+        dijkstra_df = pd.DataFrame(dijkstra_dict)
         # Second dataframe: the forecasts
-        df2 = pd.DataFrame({'Forecast':['0'], **{h: [0.0] for h in range(HORIZON_HOURS+1)}})
-        df2.loc[0] = ['Price [cts/kWh]'] + g.elec_prices
-        df2.loc[1] = ['Load [kW]'] + g.load
-        df2.loc[2] = ['OAT [F]'] +[round(to_fahrenheit(x)) for x in g.oat]
-        df2.loc[3] = ['Required SWT [F]'] +[round(x) for x in g.min_SWT]
-        df2.reset_index(inplace=True, drop=True)
+        forecast_df = pd.DataFrame({'Forecast':['0'], **{h: [0.0] for h in range(HORIZON_HOURS+1)}})
+        forecast_df.loc[0] = ['Price [cts/kWh]'] + g.elec_prices
+        forecast_df.loc[1] = ['Load [kW]'] + g.load
+        forecast_df.loc[2] = ['OAT [F]'] +[round(to_fahrenheit(x)) for x in g.oat]
+        forecast_df.loc[3] = ['Required SWT [F]'] +[round(x) for x in g.min_SWT]
+        forecast_df.reset_index(inplace=True, drop=True)
         # Highlight shortest path
         highlight_positions = []
         node_i = g.source_node
         while node_i.next_node is not None:
-            highlight_positions.append((node_i.index+len(df2)+2, 3+node_i.time_slice))
+            highlight_positions.append((node_i.index+len(forecast_df)+2, 3+node_i.time_slice))
             node_i = node_i.next_node
-        highlight_positions.append((node_i.index+len(df2)+2, 3+node_i.time_slice))
+        highlight_positions.append((node_i.index+len(forecast_df)+2, 3+node_i.time_slice))
         # Export excel
         folder_name = f'results/result_{NOW_FOR_FILE}'
         file_path = os.path.join(folder_name, 'output.xlsx')
         os.makedirs(folder_name, exist_ok=True)
         shutil.copy('parameters.conf', folder_name)
         with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
-            df2.to_excel(writer, index=False, startcol=2, sheet_name='Sheet1')
-            df.to_excel(writer, index=False, startrow=len(df2)+2, sheet_name='Sheet1')
+            forecast_df.to_excel(writer, index=False, startcol=2, sheet_name='Sheet1')
+            dijkstra_df.to_excel(writer, index=False, startrow=len(forecast_df)+2, sheet_name='Sheet1')
             worksheet = writer.sheets['Sheet1']
             worksheet.column_dimensions['A'].width = 15
             worksheet.column_dimensions['B'].width = 15
