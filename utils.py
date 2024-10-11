@@ -23,7 +23,7 @@ DD_SWT_F = config.getfloat('parameters', 'DD_SWT_F')
 DD_POWER_KW = config.getfloat('parameters', 'DD_POWER_KW')
 SHOW_PLOT = config.getboolean('parameters', 'SHOW_PLOT')
 
-NOW_FOR_FILE = pendulum.now().strftime("%Y:%m:%d_%H-%M-%S")
+NOW_FOR_FILE = round(pendulum.now('UTC').timestamp())
 
 df = pd.read_csv('yearly_data_2022.csv')
 
