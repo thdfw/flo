@@ -8,8 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
 from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.drawing.image import Image
-from openpyxl.styles import PatternFill
-from utils import COP, to_celcius, get_data, required_SWT
+from utils import COP, to_celcius, get_data
 from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, NUM_LAYERS, 
                    MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, STORAGE_LOSSES_PERCENT, 
                    START_TIME, INITIAL_TOP_TEMP_F, INITIAL_THERMOCLINE, SHOW_PLOT, NOW_FOR_FILE)
@@ -59,13 +58,13 @@ class Graph():
         print(f"Done in {round(time.time()-timer,2)} seconds.\n")
 
     def get_forecasts(self):
-        df = get_data(self.start_time)
-        self.elec_dist_prices = list(df.dist)
-        self.elec_lmp = list(df.lmp)
-        self.elec_prices = [x+y for x,y in zip(list(df.dist), list(df.lmp))]
-        self.oat = list(df.oat)
-        self.load = list(df.load)
-        self.min_SWT = [required_SWT(x) for x in self.load]
+        forecasts = get_data(START_TIME)
+        self.elec_dist = list(forecasts.dist)
+        self.elec_lmp = list(forecasts.lmp)
+        self.elec_prices = [x+y for x,y in zip(list(forecasts.dist), list(forecasts.lmp))]
+        self.oat = list(forecasts.oat)
+        self.load = list(forecasts.load)
+        self.min_SWT = list(forecasts.required_SWT)
 
     def create_nodes(self):
         self.nodes = {}
@@ -91,7 +90,7 @@ class Graph():
                 for node_next in self.nodes[h+1]:
                     heat_to_store = node_next.energy - node_now.energy
                     losses = STORAGE_LOSSES_PERCENT/100*(node_now.energy-self.min_energy_node)
-                    if losses<self.energy_between_consecutive_states and losses>0 and self.load[h]==0:
+                    if losses>0 and losses<self.energy_between_consecutive_states and self.load[h]==0:
                         losses = self.energy_between_consecutive_states + 1/1e9
                     heat_output_HP = heat_to_store + self.load[h] + losses
                     if heat_output_HP <= MAX_HP_POWER_KW and heat_output_HP >= MIN_HP_POWER_KW:
@@ -239,7 +238,7 @@ class Graph():
         # Second dataframe: the forecasts
         forecast_df = pd.DataFrame({'Forecast':['0'], 'Unit':['0'], **{h: [0.0] for h in range(HORIZON_HOURS+1)}})
         forecast_df.loc[0] = ['Price - total'] + ['cts/kWh'] + self.elec_prices
-        forecast_df.loc[1] = ['Price - distribution'] + ['cts/kWh'] + self.elec_dist_prices
+        forecast_df.loc[1] = ['Price - distribution'] + ['cts/kWh'] + self.elec_dist
         forecast_df.loc[2] = ['Price - LMP'] + ['cts/kWh'] + self.elec_lmp
         forecast_df.loc[3] = ['Heating load'] + ['kW'] + [round(x,2) for x in self.load]
         forecast_df.loc[4] = ['OAT'] + ['F'] + [round(x,2) for x in self.oat]
@@ -249,7 +248,7 @@ class Graph():
         shortestpath_df.loc[0] = ['Electricity used'] + ['kWh'] + [round(x,3) for x in electricitiy_used] + [0]
         shortestpath_df.loc[1] = ['Heat delivered'] + ['kWh'] + [round(x,3) for x in heat_delivered] + [0]
         shortestpath_df.loc[2] = ['Cost - total'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_prices)] + [0]
-        shortestpath_df.loc[3] = ['Cost - distribution'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_dist_prices)] + [0]
+        shortestpath_df.loc[3] = ['Cost - distribution'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_dist)] + [0]
         shortestpath_df.loc[4] = ['Cost - LMP'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_lmp)] + [0]
         # Final dataframe: the results
         total_usd = round(self.source_node.pathcost,2)
@@ -333,4 +332,3 @@ if __name__ == '__main__':
     g.solve_dijkstra()
     g.export_excel()
     # g.compute_bid()
-    g.plot()

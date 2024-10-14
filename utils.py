@@ -71,6 +71,7 @@ def get_data(time_now):
         raise ValueError(f"The HP ({MAX_HP_POWER_KW} kW) can not provide the house's maximum heating load ({round(max(heating_load),3)} kW)")
 
     df['load'] = heating_load
+    df['required_SWT'] = [required_SWT(x) for x in heating_load]
 
     return df[(df.time >= time_now) & (df.time <= time_now.add(hours=HORIZON_HOURS))]
 
