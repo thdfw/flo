@@ -13,8 +13,8 @@ from openpyxl.styles import PatternFill
 from utils import COP, to_celcius, to_fahrenheit, get_data, required_SWT
 from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, NUM_LAYERS, 
                    MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, LOSSES_PERCENT, 
-                   CONSTANT_COP, TOU_RATES, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE,
-                   SHOW_PLOT, NOW_FOR_FILE)
+                   CONSTANT_COP, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE,
+                   SHOW_PLOT, NOW_FOR_FILE, DISTRIBUTION_PRICES_CSV, LMP_CSV, OAT_CSV)
 
 SOFT_CONSTRAINT = False
 
@@ -61,11 +61,10 @@ class Graph():
         print(f"Done in {round(time.time()-timer,2)} seconds.\n")
 
     def get_forecasts(self):
-        df = get_data(self.start_time, HORIZON_HOURS)
-        if TOU_RATES == 'old':
-            self.elec_prices = list(df.jan24_prices)
-        elif TOU_RATES == 'new':
-            self.elec_prices = list(df.jul24_prices)
+        df = get_data(self.start_time)
+        self.elec_dist_prices = list(df.dist)
+        self.elec_lmp = list(df.lmp)
+        self.elec_prices = [x+y for x,y in zip(list(df.dist), list(df.lmp))]
         self.oat = list(df.oat)
         self.load = list(df.load)
         self.min_SWT = [required_SWT(x) for x in self.load]
@@ -239,21 +238,18 @@ class Graph():
         dijkstra_nextnodes_df = pd.DataFrame(dijkstra_nextnodes)
         # Second dataframe: the forecasts
         forecast_df = pd.DataFrame({'Forecast':['0'], 'Unit':['0'], **{h: [0.0] for h in range(HORIZON_HOURS+1)}})
-        forecast_df.loc[0] = ['Electricity price'] + ['cts/kWh'] + self.elec_prices
-        forecast_df.loc[1] = ['Heating load'] + ['kW'] + self.load
-        forecast_df.loc[2] = ['OAT'] + ['F'] + [round(to_fahrenheit(x)) for x in self.oat]
-        forecast_df.loc[3] = ['Required SWT'] + ['F'] + [round(x) for x in self.min_SWT]
+        forecast_df.loc[0] = ['Price - total'] + ['cts/kWh'] + self.elec_prices
+        forecast_df.loc[1] = ['Price - distribution'] + ['cts/kWh'] + self.elec_dist_prices
+        forecast_df.loc[2] = ['Price - LMP'] + ['cts/kWh'] + self.elec_lmp
+        forecast_df.loc[3] = ['Heating load'] + ['kW'] + [round(x,2) for x in self.load]
+        forecast_df.loc[4] = ['OAT'] + ['F'] + [round(to_fahrenheit(x)) for x in self.oat]
+        forecast_df.loc[5] = ['Required SWT'] + ['F'] + [round(x) for x in self.min_SWT]
         # Third dataframe: the shortest path
         shortestpath_df = pd.DataFrame({'Shortest path':['0'], 'Unit':['0'], **{h: [0.0] for h in range(HORIZON_HOURS+1)}})
-        shortestpath_df.loc[0] = ['Electrical power'] + ['kW'] + [round(x,2) for x in electricitiy_used] + [0]
-        shortestpath_df.loc[1] = ['Cost'] + ['USD'] + [round(x*y/100,2) for x,y in zip(electricitiy_used, self.elec_prices)] + [0]
-        # Fourth dataframe: the overview
-        results_df = pd.DataFrame({'RESULTS':['0'], 'Value':[0], 'Unit':['0']})
-        results_df.loc[0] = ['Total cost', 120, '$']
-        results_df.loc[1] = ['Total electricity', 120, 'kWh']
-        results_df.loc[2] = ['Total heat', 120, 'kWh']
-        results_df.loc[3] = ['Next node index', 11, '']
-
+        shortestpath_df.loc[0] = ['Electrical power'] + ['kW'] + [round(x,3) for x in electricitiy_used] + [0]
+        shortestpath_df.loc[1] = ['Cost - total'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_prices)] + [0]
+        shortestpath_df.loc[2] = ['Cost - distribution'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_dist_prices)] + [0]
+        shortestpath_df.loc[3] = ['Cost - LMP'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_lmp)] + [0]
         # Highlight shortest path
         highlight_positions = []
         node_i = self.source_node
@@ -278,7 +274,6 @@ class Graph():
         os.makedirs('results', exist_ok=True)
         file_path = os.path.join('results', f'result_{NOW_FOR_FILE}.xlsx')
         with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
-            results_df.to_excel(writer, index=False, startcol=1, startrow=1, sheet_name='Results')
             forecast_df.to_excel(writer, index=False, startcol=1, sheet_name='Pathcost')
             forecast_df.to_excel(writer, index=False, startcol=1, sheet_name='Next node')
             shortestpath_df.to_excel(writer, index=False, startcol=1, startrow=len(forecast_df)+1, sheet_name='Pathcost')
@@ -297,8 +292,8 @@ class Graph():
             nextnode_sheet.column_dimensions['C'].width = 15
             parameters_sheet.column_dimensions['A'].width = 40
             parameters_sheet.column_dimensions['B'].width = 70
-            pathcost_sheet.freeze_panes = 'D10'
-            nextnode_sheet.freeze_panes = 'D10'
+            pathcost_sheet.freeze_panes = 'D14'
+            nextnode_sheet.freeze_panes = 'D14'
             highlight_fill = PatternFill(start_color='72ba93', end_color='72ba93', fill_type='solid')
             for row, col in highlight_positions:
                 pathcost_sheet.cell(row=row+1, column=col+1).fill = highlight_fill

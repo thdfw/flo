@@ -1,6 +1,7 @@
 import pandas as pd
 import pendulum
 import configparser
+import os
 
 config = configparser.ConfigParser()
 config.read('parameters.conf')
@@ -14,7 +15,6 @@ MIN_HP_POWER_KW = config.getfloat('parameters', 'MIN_HP_POWER_KW')
 STORAGE_VOLUME_GALLONS = config.getfloat('parameters', 'STORAGE_VOLUME_GALLONS')
 LOSSES_PERCENT = config.getfloat('parameters', 'LOSSES_PERCENT')
 CONSTANT_COP = config.getfloat('parameters', 'CONSTANT_COP')
-TOU_RATES = config.get('parameters', 'TOU_RATES')
 START_TIME = pendulum.parse(config.get('parameters', 'START_TIME')).set(minute=0, second=0)
 START_TOP_TEMP_F = config.getint('parameters', 'START_TOP_TEMP_F')
 START_THERMOCLINE = config.getint('parameters', 'START_THERMOCLINE')
@@ -22,17 +22,57 @@ ROOM_TEMPERATURE_F = config.getfloat('parameters', 'ROOM_TEMPERATURE_F')
 DD_SWT_F = config.getfloat('parameters', 'DD_SWT_F')
 DD_POWER_KW = config.getfloat('parameters', 'DD_POWER_KW')
 SHOW_PLOT = config.getboolean('parameters', 'SHOW_PLOT')
+DISTRIBUTION_PRICES_CSV = config.get('parameters', 'DISTRIBUTION_PRICES_CSV')
+LMP_CSV = config.get('parameters', 'LMP_CSV')
+OAT_CSV = config.get('parameters', 'OAT_CSV')
+TOTAL_YEAR_HEAT_LOAD_THERMAL_KWH = config.getfloat('parameters', 'TOTAL_YEAR_HEAT_LOAD_THERMAL_KWH')
+ZERO_HEAT_DELTA_F = config.getfloat('parameters', 'ZERO_HEAT_DELTA_F')
+
 
 NOW_FOR_FILE = round(pendulum.now('UTC').timestamp())
 
-df = pd.read_csv('yearly_data_2022.csv')
 
-def get_data(time_now, horizon):
-    time_now = time_now.timestamp() - 5*3600
-    return df[(df.time >= time_now) & (df.time <= time_now + horizon * 3600)]
+def get_data(time_now):
+
+    start_year = START_TIME.year
+    time_list = pd.date_range(start=f'{start_year}-01-01', end=f'{start_year}-12-31 23:00', freq='h', tz='America/New_York')
+
+    if START_TIME.year != START_TIME.add(hours=HORIZON_HOURS).year:
+        raise ValueError("Simulations accross multiple years are currently not supported")
+
+    col1_dist = pd.read_csv(DISTRIBUTION_PRICES_CSV, header=None)
+    col2_lmp = pd.read_csv(LMP_CSV, header=None)
+    col3_oat = pd.read_csv(OAT_CSV, header=None)
+
+    if len(col1_dist)<8760 or len(col2_lmp)<8760 or len(col3_oat)<8760:
+        raise ValueError(f"The length of the provided data is shorter than 8760 hours")
+
+    df = pd.DataFrame({
+        'time': time_list,
+        'dist': col1_dist[0],
+        'lmp': col2_lmp[0],
+        'oat': col3_oat[0],
+    })
+
+    # Convert to cts/kWh
+    df['dist'] = df['dist']/10
+    df['lmp'] = df['lmp']/10
+
+    heating_degree_hours = [ROOM_TEMPERATURE_F-ZERO_HEAT_DELTA_F-x for x in list(df.oat)]
+    heating_degree_hours = [x if x>=0 else 0 for x in heating_degree_hours]
+    heating_degree_hours = [heating_degree_hours[i] 
+                            if (time_list[i] < pendulum.datetime(start_year, 5, 15, tz='America/New_York') or
+                                time_list[i] >= pendulum.datetime(start_year, 9, 15, tz='America/New_York'))
+                                else 0
+                                for i in range(len(heating_degree_hours))]
+    heating_degree_hours = [x/sum(heating_degree_hours) for x in heating_degree_hours]
+    heating_load = [x*TOTAL_YEAR_HEAT_LOAD_THERMAL_KWH for x in heating_degree_hours]
+    df['load'] = heating_load
+
+    return df[(df.time >= time_now) & (df.time <= time_now.add(hours=HORIZON_HOURS))]
 
 def COP(oat,lwt):
-    return 2.35607707 + 0.0232784*oat -0.00671242*lwt
+    return 2.35607707 + 0.0232784*oat - 0.00671242*lwt
 
 def to_celcius(t):
     return (t-32)*5/9
@@ -67,8 +107,6 @@ def check_parameters():
         raise ValueError('Incorrect parameter: LOSSES_PERCENT must be between 0 and 100 %')
     if CONSTANT_COP < 0:
         raise ValueError('Incorrect parameter: CONSTANT_COP must be non negative')
-    if TOU_RATES not in ['new', 'old']:
-        raise ValueError('Incorrect parameter: TOU_RATES')
     if START_TIME < pendulum.datetime(2022,1,1) or START_TIME > pendulum.now(tz='America/New_York'):
         raise ValueError("Incorrect parameter: START_TIME must be between 2022 and today")
     if START_TOP_TEMP_F not in authorized_temps:
@@ -81,5 +119,18 @@ def check_parameters():
         raise ValueError('Incorrect parameter: DD_SWT_F')
     if DD_POWER_KW<=0:
         raise ValueError('Incorrect parameter: DD_POWER_KW must be positive')
+    # CSV files
+    if not os.path.exists(DISTRIBUTION_PRICES_CSV):
+        raise ValueError(f'The path to the CSV file containing distribution prices does not exist: {DISTRIBUTION_PRICES_CSV}')
+    if not os.path.exists(LMP_CSV):
+        raise ValueError(f'The path to the CSV file containing LMPs does not exist: {LMP_CSV}')
+    if not os.path.exists(OAT_CSV):
+        raise ValueError(f'The path to the CSV file containing OATs does not exist: {OAT_CSV}')
+    if DISTRIBUTION_PRICES_CSV[-4:] != '.csv':
+        raise ValueError(f'{DISTRIBUTION_PRICES_CSV.split('/')[-1]} is not a CSV file.')
+    if LMP_CSV[-4:] != '.csv':
+        raise ValueError(f'{LMP_CSV.split('/')[-1]} is not a CSV file.')
+    if OAT_CSV[-4:] != '.csv':
+        raise ValueError(f'{OAT_CSV.split('/')[-1]} is not a CSV file.')
 
 check_parameters()
