@@ -6,15 +6,14 @@ import pendulum
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
-from openpyxl.styles import PatternFill
-from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.drawing.image import Image
 from openpyxl.styles import PatternFill
 from utils import COP, to_celcius, to_fahrenheit, get_data, required_SWT
 from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, NUM_LAYERS, 
                    MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, LOSSES_PERCENT, 
                    CONSTANT_COP, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE,
-                   SHOW_PLOT, NOW_FOR_FILE, DISTRIBUTION_PRICES_CSV, LMP_CSV, OAT_CSV)
+                   SHOW_PLOT, NOW_FOR_FILE)
 
 SOFT_CONSTRAINT = False
 
@@ -97,7 +96,7 @@ class Graph():
                         losses = self.energy_between_consecutive_states + 1/1e9
                     heat_output_HP = heat_to_store + self.load[h] + losses
                     if heat_output_HP <= MAX_HP_POWER_KW and heat_output_HP >= MIN_HP_POWER_KW:
-                        cop = COP(oat=self.oat[h], lwt=to_celcius(node_next.top_temp)) if CONSTANT_COP==0 else CONSTANT_COP
+                        cop = COP(oat=to_celcius(self.oat[h]), lwt=to_celcius(node_next.top_temp)) if CONSTANT_COP==0 else CONSTANT_COP
                         cost = self.elec_prices[h]/100 * heat_output_HP / cop
                         if heat_to_store > 0:
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
@@ -212,7 +211,7 @@ class Graph():
         print("Exporting to Excel...")
         start_time = time.time()
         # Along the shortest path
-        electricitiy_used = []
+        electricitiy_used, heat_delivered = [], []
         node_i = self.source_node
         while node_i.next_node is not None:
             heat_to_store = node_i.next_node.energy - node_i.energy
@@ -220,8 +219,9 @@ class Graph():
             if losses<self.energy_between_consecutive_states and losses>0 and self.load[node_i.time_slice]==0:
                 losses = self.energy_between_consecutive_states + 1/1e9
             heat_output_HP = heat_to_store + self.load[node_i.time_slice] + losses
-            cop = COP(oat=self.oat[node_i.time_slice], lwt=to_celcius(node_i.next_node.top_temp)) if CONSTANT_COP==0 else CONSTANT_COP
+            cop = COP(oat=to_celcius(self.oat[node_i.time_slice]), lwt=to_celcius(node_i.next_node.top_temp)) if CONSTANT_COP==0 else CONSTANT_COP
             electricitiy_used.append(heat_output_HP / cop)
+            heat_delivered.append(heat_output_HP)
             node_i = node_i.next_node
         # First dataframe: the Dijkstra graph
         dijkstra_pathcosts = {}
@@ -242,14 +242,22 @@ class Graph():
         forecast_df.loc[1] = ['Price - distribution'] + ['cts/kWh'] + self.elec_dist_prices
         forecast_df.loc[2] = ['Price - LMP'] + ['cts/kWh'] + self.elec_lmp
         forecast_df.loc[3] = ['Heating load'] + ['kW'] + [round(x,2) for x in self.load]
-        forecast_df.loc[4] = ['OAT'] + ['F'] + [round(to_fahrenheit(x)) for x in self.oat]
+        forecast_df.loc[4] = ['OAT'] + ['F'] + [round(x,2) for x in self.oat]
         forecast_df.loc[5] = ['Required SWT'] + ['F'] + [round(x) for x in self.min_SWT]
         # Third dataframe: the shortest path
         shortestpath_df = pd.DataFrame({'Shortest path':['0'], 'Unit':['0'], **{h: [0.0] for h in range(HORIZON_HOURS+1)}})
-        shortestpath_df.loc[0] = ['Electrical power'] + ['kW'] + [round(x,3) for x in electricitiy_used] + [0]
-        shortestpath_df.loc[1] = ['Cost - total'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_prices)] + [0]
-        shortestpath_df.loc[2] = ['Cost - distribution'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_dist_prices)] + [0]
-        shortestpath_df.loc[3] = ['Cost - LMP'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_lmp)] + [0]
+        shortestpath_df.loc[0] = ['Electricity used'] + ['kWh'] + [round(x,3) for x in electricitiy_used] + [0]
+        shortestpath_df.loc[1] = ['Heat delivered'] + ['kWh'] + [round(x,3) for x in heat_delivered] + [0]
+        shortestpath_df.loc[2] = ['Cost - total'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_prices)] + [0]
+        shortestpath_df.loc[3] = ['Cost - distribution'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_dist_prices)] + [0]
+        shortestpath_df.loc[4] = ['Cost - LMP'] + ['cts'] + [round(x*y,2) for x,y in zip(electricitiy_used, self.elec_lmp)] + [0]
+        # Final dataframe: the results
+        total_usd = round(self.source_node.pathcost,2)
+        total_elec = round(sum(electricitiy_used),2)
+        total_heat = round(sum(heat_delivered),2)
+        next_index = self.source_node.next_node.index
+        results = ['Cost ($)', total_usd, 'Electricity (kWh)', total_elec, 'Heat (kWh)', total_heat, 'Next step index', next_index]
+        results_df = pd.DataFrame({'RESULTS':results})
         # Highlight shortest path
         highlight_positions = []
         node_i = self.source_node
@@ -274,6 +282,8 @@ class Graph():
         os.makedirs('results', exist_ok=True)
         file_path = os.path.join('results', f'result_{NOW_FOR_FILE}.xlsx')
         with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+            results_df.to_excel(writer, index=False, sheet_name='Pathcost')
+            results_df.to_excel(writer, index=False, sheet_name='Next node')
             forecast_df.to_excel(writer, index=False, startcol=1, sheet_name='Pathcost')
             forecast_df.to_excel(writer, index=False, startcol=1, sheet_name='Next node')
             shortestpath_df.to_excel(writer, index=False, startcol=1, startrow=len(forecast_df)+1, sheet_name='Pathcost')
@@ -284,6 +294,17 @@ class Graph():
             pathcost_sheet = writer.sheets['Pathcost']
             nextnode_sheet = writer.sheets['Next node']
             parameters_sheet = writer.sheets['Parameters']
+            self.plot()
+            plot_sheet = writer.book.create_sheet(title='Plot')
+            plot_sheet.add_image(Image('plot.png'), 'A1')
+            for row in pathcost_sheet['A1:A10']:
+                for cell in row:
+                    cell.alignment = Alignment(horizontal='center')
+                    cell.font = Font(bold=True)
+            for row in nextnode_sheet['A1:A10']:
+                for cell in row:
+                    cell.alignment = Alignment(horizontal='center')
+                    cell.font = Font(bold=True)
             pathcost_sheet.column_dimensions['A'].width = 15
             pathcost_sheet.column_dimensions['B'].width = 15
             pathcost_sheet.column_dimensions['C'].width = 15
@@ -295,15 +316,12 @@ class Graph():
             pathcost_sheet.freeze_panes = 'D14'
             nextnode_sheet.freeze_panes = 'D14'
             highlight_fill = PatternFill(start_color='72ba93', end_color='72ba93', fill_type='solid')
+            for row in range(len(forecast_df)+len(shortestpath_df)+2):
+                pathcost_sheet.cell(row=row+1, column=1).fill = highlight_fill
+                nextnode_sheet.cell(row=row+1, column=1).fill = highlight_fill
             for row, col in highlight_positions:
                 pathcost_sheet.cell(row=row+1, column=col+1).fill = highlight_fill
                 nextnode_sheet.cell(row=row+1, column=col+1).fill = highlight_fill
-        # Add the plot
-        self.plot()
-        wb = load_workbook(file_path)
-        ws = wb.create_sheet(title='Plot')
-        ws.add_image(Image('plot.png'), 'A1')
-        wb.save(file_path)
         os.remove('plot.png')
         print(f"Done in {round(time.time()-start_time,2)} seconds.\n")
 
