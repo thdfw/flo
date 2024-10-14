@@ -10,8 +10,8 @@ MIN_TOP_TEMP_F = config.getint('parameters', 'MIN_TOP_TEMP_F')
 MAX_TOP_TEMP_F = config.getint('parameters', 'MAX_TOP_TEMP_F')
 TEMP_LIFT_F = config.getint('parameters', 'TEMP_LIFT_F')
 NUM_LAYERS = config.getint('parameters', 'NUM_LAYERS')
-MAX_HP_POWER_KW = config.getfloat('parameters', 'MAX_HP_POWER_KW')
-MIN_HP_POWER_KW = config.getfloat('parameters', 'MIN_HP_POWER_KW')
+MAX_HP_ELEC_POWER_KW = config.getfloat('parameters', 'MAX_HP_ELEC_POWER_KW')
+MIN_HP_ELEC_POWER_KW = config.getfloat('parameters', 'MIN_HP_ELEC_POWER_KW')
 STORAGE_VOLUME_GALLONS = config.getfloat('parameters', 'STORAGE_VOLUME_GALLONS')
 STORAGE_LOSSES_PERCENT = config.getfloat('parameters', 'STORAGE_LOSSES_PERCENT')
 START_TIME = pendulum.parse(config.get('parameters', 'START_TIME')).set(minute=0, second=0)
@@ -67,8 +67,15 @@ def get_data(time_now):
     heating_degree_hours = [x/sum(heating_degree_hours) for x in heating_degree_hours]
     heating_load = [x*YEARLY_HEAT_LOAD_THERMAL_KWH for x in heating_degree_hours]
 
-    if max(heating_load) > MAX_HP_POWER_KW:
-        raise ValueError(f"The HP ({MAX_HP_POWER_KW} kW) can not provide the house's maximum heating load ({round(max(heating_load),3)} kW)")
+    max_heating_load_elec = max(heating_load)/COP(min(df.oat),required_SWT(max(heating_load)))
+    if max_heating_load_elec > MAX_HP_ELEC_POWER_KW:
+        error_text = f"""\n\nOn the coldest hour:
+    - The heating requirement is {round(max(heating_load),2)} kW 
+    - The COP is {round(COP(min(df.oat),required_SWT(max(heating_load))),2)}
+    => Need a HP which can reach {round(max_heating_load_elec,2)} kW electrical power
+    => The given HP is undersized ({MAX_HP_ELEC_POWER_KW} kW electrical power)
+    """
+        raise ValueError(error_text)
 
     df['load'] = heating_load
     df['required_SWT'] = [required_SWT(x) for x in heating_load]
@@ -106,8 +113,8 @@ def check_parameters():
         raise ValueError(f'Incorrect parameters: There should exist an integer x>0 such that MIN_TOP_TEMP_F + x*TEMP_LIFT_F = MAX_TOP_TEMP_F')
     if NUM_LAYERS < 1:
         raise ValueError('Incorrect parameter: NUM_LAYERS must be larger than 1')
-    if MAX_HP_POWER_KW < MIN_HP_POWER_KW or MAX_HP_POWER_KW < 0:
-        raise ValueError('Incorrect parameter: MAX_HP_POWER_KW must be positive and larger than MIN_HP_POWER_KW')
+    if MAX_HP_ELEC_POWER_KW < MIN_HP_ELEC_POWER_KW or MAX_HP_ELEC_POWER_KW < 0:
+        raise ValueError('Incorrect parameter: MAX_HP_ELEC_POWER_KW must be positive and larger than MIN_HP_ELEC_POWER_KW')
     if STORAGE_VOLUME_GALLONS < 0:
         raise ValueError('Incorrect parameter: STORAGE_VOLUME_GALLONS must be non negative')
     if STORAGE_LOSSES_PERCENT < 0 or STORAGE_LOSSES_PERCENT > 100:

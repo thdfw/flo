@@ -10,7 +10,7 @@ from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.drawing.image import Image
 from utils import COP, to_celcius, get_data
 from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, NUM_LAYERS, 
-                   MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, STORAGE_LOSSES_PERCENT, 
+                   MAX_HP_ELEC_POWER_KW, MIN_HP_ELEC_POWER_KW, STORAGE_VOLUME_GALLONS, STORAGE_LOSSES_PERCENT, 
                    START_TIME, INITIAL_TOP_TEMP_F, INITIAL_THERMOCLINE, SHOW_PLOT, NOW_FOR_FILE)
 
 SOFT_CONSTRAINT = False
@@ -93,27 +93,29 @@ class Graph():
                     if losses>0 and losses<self.energy_between_consecutive_states and self.load[h]==0:
                         losses = self.energy_between_consecutive_states + 1/1e9
                     heat_output_HP = heat_to_store + self.load[h] + losses
-                    if heat_output_HP <= MAX_HP_POWER_KW and heat_output_HP >= MIN_HP_POWER_KW:
+                    max_cop = 3
+                    if heat_output_HP/max_cop <= MAX_HP_ELEC_POWER_KW and heat_output_HP/max_cop >= MIN_HP_ELEC_POWER_KW:
                         cop = COP(oat=self.oat[h], lwt=node_next.top_temp)
-                        cost = self.elec_prices[h]/100 * heat_output_HP / cop
-                        if heat_to_store > 0:
-                            if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
+                        if heat_output_HP/cop <= MAX_HP_ELEC_POWER_KW and heat_output_HP/cop >= MIN_HP_ELEC_POWER_KW:
+                            cost = self.elec_prices[h]/100 * heat_output_HP / cop
+                            if heat_to_store > 0:
+                                if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
+                                    self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
+                                if node_next.top_temp==node_now.top_temp+TEMP_LIFT_F:
+                                    self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
+                            elif heat_to_store < 0:
+                                if heat_output_HP < self.load[h]:
+                                    if self.load[h]>0 and (node_now.top_temp < self.min_SWT[h] or node_next.top_temp < self.min_SWT[h]):
+                                        if SOFT_CONSTRAINT:
+                                            cost += 1e5
+                                        else:
+                                            continue
+                                if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
+                                    self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
+                                if node_next.top_temp==node_now.top_temp-TEMP_LIFT_F:
+                                    self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
+                            else:
                                 self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
-                            if node_next.top_temp==node_now.top_temp+TEMP_LIFT_F:
-                                self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
-                        elif heat_to_store < 0:
-                            if heat_output_HP < self.load[h]:
-                                 if self.load[h]>0 and (node_now.top_temp < self.min_SWT[h] or node_next.top_temp < self.min_SWT[h]):
-                                    if SOFT_CONSTRAINT:
-                                         cost += 1e5
-                                    else:
-                                        continue
-                            if node_next.top_temp==node_now.top_temp and node_next.thermocline<node_now.thermocline:
-                                self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
-                            if node_next.top_temp==node_now.top_temp-TEMP_LIFT_F:
-                                self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
-                        else:
-                            self.edges[node_now].append(Edge(node_now, node_next, cost, heat_output_HP))
 
     def solve_dijkstra(self):
         print("Solving Dijkstra...")
@@ -168,7 +170,8 @@ class Graph():
         ax[0].step(list_time, self.load, where='post', color='tab:red', label='Load', alpha=0.6)
         ax[0].legend(loc='upper left')
         ax[0].set_ylabel('Heat [kWh]')
-        ax[0].set_ylim([-0.5,20])
+        if max(self.list_hp_energy)<20:
+            ax[0].set_ylim([-0.5,20]) 
         ax2 = ax[0].twinx()
         ax2.step(list_time, self.elec_prices, where='post', color='gray', alpha=0.6, label='Elec price')
         ax2.legend(loc='upper right')
