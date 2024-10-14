@@ -13,11 +13,10 @@ NUM_LAYERS = config.getint('parameters', 'NUM_LAYERS')
 MAX_HP_POWER_KW = config.getfloat('parameters', 'MAX_HP_POWER_KW')
 MIN_HP_POWER_KW = config.getfloat('parameters', 'MIN_HP_POWER_KW')
 STORAGE_VOLUME_GALLONS = config.getfloat('parameters', 'STORAGE_VOLUME_GALLONS')
-LOSSES_PERCENT = config.getfloat('parameters', 'LOSSES_PERCENT')
-CONSTANT_COP = config.getfloat('parameters', 'CONSTANT_COP')
+STORAGE_LOSSES_PERCENT = config.getfloat('parameters', 'STORAGE_LOSSES_PERCENT')
 START_TIME = pendulum.parse(config.get('parameters', 'START_TIME')).set(minute=0, second=0)
-START_TOP_TEMP_F = config.getint('parameters', 'START_TOP_TEMP_F')
-START_THERMOCLINE = config.getint('parameters', 'START_THERMOCLINE')
+INITIAL_TOP_TEMP_F = config.getint('parameters', 'INITIAL_TOP_TEMP_F')
+INITIAL_THERMOCLINE = config.getint('parameters', 'INITIAL_THERMOCLINE')
 ROOM_TEMPERATURE_F = config.getfloat('parameters', 'ROOM_TEMPERATURE_F')
 DD_SWT_F = config.getfloat('parameters', 'DD_SWT_F')
 DD_POWER_KW = config.getfloat('parameters', 'DD_POWER_KW')
@@ -25,7 +24,7 @@ SHOW_PLOT = config.getboolean('parameters', 'SHOW_PLOT')
 DISTRIBUTION_PRICES_CSV = config.get('parameters', 'DISTRIBUTION_PRICES_CSV')
 LMP_CSV = config.get('parameters', 'LMP_CSV')
 OAT_CSV = config.get('parameters', 'OAT_CSV')
-TOTAL_YEAR_HEAT_LOAD_THERMAL_KWH = config.getfloat('parameters', 'TOTAL_YEAR_HEAT_LOAD_THERMAL_KWH')
+YEARLY_HEAT_LOAD_THERMAL_KWH = config.getfloat('parameters', 'YEARLY_HEAT_LOAD_THERMAL_KWH')
 ZERO_HEAT_DELTA_F = config.getfloat('parameters', 'ZERO_HEAT_DELTA_F')
 
 
@@ -66,12 +65,19 @@ def get_data(time_now):
                                 else 0
                                 for i in range(len(heating_degree_hours))]
     heating_degree_hours = [x/sum(heating_degree_hours) for x in heating_degree_hours]
-    heating_load = [x*TOTAL_YEAR_HEAT_LOAD_THERMAL_KWH for x in heating_degree_hours]
+    heating_load = [x*YEARLY_HEAT_LOAD_THERMAL_KWH for x in heating_degree_hours]
+
+    if max(heating_load) > MAX_HP_POWER_KW:
+        raise ValueError(f"The HP ({MAX_HP_POWER_KW} kW) can not provide the house's maximum heating load ({round(max(heating_load),3)} kW)")
+
     df['load'] = heating_load
 
     return df[(df.time >= time_now) & (df.time <= time_now.add(hours=HORIZON_HOURS))]
 
-def COP(oat,lwt):
+def COP(oat, lwt, fahrenheit=True):
+    if fahrenheit:
+        oat = to_celcius(oat)
+        lwt = to_celcius(lwt)
     return 2.35607707 + 0.0232784*oat - 0.00671242*lwt
 
 def to_celcius(t):
@@ -103,16 +109,14 @@ def check_parameters():
         raise ValueError('Incorrect parameter: MAX_HP_POWER_KW must be positive and larger than MIN_HP_POWER_KW')
     if STORAGE_VOLUME_GALLONS < 0:
         raise ValueError('Incorrect parameter: STORAGE_VOLUME_GALLONS must be non negative')
-    if LOSSES_PERCENT < 0 or LOSSES_PERCENT > 100:
-        raise ValueError('Incorrect parameter: LOSSES_PERCENT must be between 0 and 100 %')
-    if CONSTANT_COP < 0:
-        raise ValueError('Incorrect parameter: CONSTANT_COP must be non negative')
+    if STORAGE_LOSSES_PERCENT < 0 or STORAGE_LOSSES_PERCENT > 100:
+        raise ValueError('Incorrect parameter: STORAGE_LOSSES_PERCENT must be between 0 and 100 %')
     if START_TIME < pendulum.datetime(2022,1,1) or START_TIME > pendulum.now(tz='America/New_York'):
         raise ValueError("Incorrect parameter: START_TIME must be between 2022 and today")
-    if START_TOP_TEMP_F not in authorized_temps:
-        raise ValueError(f"Incorrect parameter: START_TOP_TEMP_F is not in the authorized temperatures: {authorized_temps}")
-    if START_THERMOCLINE<1 or START_THERMOCLINE>NUM_LAYERS :
-        raise ValueError(f"Incorrect parameter: START_THERMOCLINE must be an integer between 1 and NUM_LAYERS ({NUM_LAYERS})")
+    if INITIAL_TOP_TEMP_F not in authorized_temps:
+        raise ValueError(f"Incorrect parameter: INITIAL_TOP_TEMP_F is not in the authorized temperatures: {authorized_temps}")
+    if INITIAL_THERMOCLINE<1 or INITIAL_THERMOCLINE>NUM_LAYERS :
+        raise ValueError(f"Incorrect parameter: INITIAL_THERMOCLINE must be an integer between 1 and NUM_LAYERS ({NUM_LAYERS})")
     if ROOM_TEMPERATURE_F<=to_fahrenheit(0) or ROOM_TEMPERATURE_F>=to_fahrenheit(40):
         raise ValueError('Incorrect parameter: ROOM_TEMPERATURE_F')
     if DD_SWT_F<=ROOM_TEMPERATURE_F or DD_SWT_F>=to_fahrenheit(100):

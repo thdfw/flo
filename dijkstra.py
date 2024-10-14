@@ -9,11 +9,10 @@ from matplotlib.colors import Normalize, ListedColormap, BoundaryNorm
 from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.drawing.image import Image
 from openpyxl.styles import PatternFill
-from utils import COP, to_celcius, to_fahrenheit, get_data, required_SWT
+from utils import COP, to_celcius, get_data, required_SWT
 from utils import (HORIZON_HOURS, MIN_TOP_TEMP_F, MAX_TOP_TEMP_F, TEMP_LIFT_F, NUM_LAYERS, 
-                   MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, LOSSES_PERCENT, 
-                   CONSTANT_COP, START_TIME, START_TOP_TEMP_F, START_THERMOCLINE,
-                   SHOW_PLOT, NOW_FOR_FILE)
+                   MAX_HP_POWER_KW, MIN_HP_POWER_KW, STORAGE_VOLUME_GALLONS, STORAGE_LOSSES_PERCENT, 
+                   START_TIME, INITIAL_TOP_TEMP_F, INITIAL_THERMOCLINE, SHOW_PLOT, NOW_FOR_FILE)
 
 SOFT_CONSTRAINT = False
 
@@ -91,12 +90,12 @@ class Graph():
                 self.edges[node_now] = []
                 for node_next in self.nodes[h+1]:
                     heat_to_store = node_next.energy - node_now.energy
-                    losses = LOSSES_PERCENT/100*(node_now.energy-self.min_energy_node)
+                    losses = STORAGE_LOSSES_PERCENT/100*(node_now.energy-self.min_energy_node)
                     if losses<self.energy_between_consecutive_states and losses>0 and self.load[h]==0:
                         losses = self.energy_between_consecutive_states + 1/1e9
                     heat_output_HP = heat_to_store + self.load[h] + losses
                     if heat_output_HP <= MAX_HP_POWER_KW and heat_output_HP >= MIN_HP_POWER_KW:
-                        cop = COP(oat=to_celcius(self.oat[h]), lwt=to_celcius(node_next.top_temp)) if CONSTANT_COP==0 else CONSTANT_COP
+                        cop = COP(oat=self.oat[h], lwt=node_next.top_temp)
                         cost = self.elec_prices[h]/100 * heat_output_HP / cop
                         if heat_to_store > 0:
                             if node_next.top_temp==node_now.top_temp and node_next.thermocline>node_now.thermocline:
@@ -208,6 +207,7 @@ class Graph():
             plt.show()
 
     def export_excel(self):
+        self.plot()
         print("Exporting to Excel...")
         start_time = time.time()
         # Along the shortest path
@@ -215,11 +215,11 @@ class Graph():
         node_i = self.source_node
         while node_i.next_node is not None:
             heat_to_store = node_i.next_node.energy - node_i.energy
-            losses = LOSSES_PERCENT/100*(node_i.energy-self.min_energy_node)
+            losses = STORAGE_LOSSES_PERCENT/100*(node_i.energy-self.min_energy_node)
             if losses<self.energy_between_consecutive_states and losses>0 and self.load[node_i.time_slice]==0:
                 losses = self.energy_between_consecutive_states + 1/1e9
             heat_output_HP = heat_to_store + self.load[node_i.time_slice] + losses
-            cop = COP(oat=to_celcius(self.oat[node_i.time_slice]), lwt=to_celcius(node_i.next_node.top_temp)) if CONSTANT_COP==0 else CONSTANT_COP
+            cop = COP(oat=self.oat[node_i.time_slice], lwt=node_i.next_node.top_temp)
             electricitiy_used.append(heat_output_HP / cop)
             heat_delivered.append(heat_output_HP)
             node_i = node_i.next_node
@@ -276,7 +276,6 @@ class Graph():
                         key = key_value[0].strip()
                         value = key_value[1].strip()
                         parameters[key] = value
-        parameters = dict(sorted(parameters.items()))
         parameters_df = pd.DataFrame(list(parameters.items()), columns=['Variable', 'Value'])
         # Write to Excel
         os.makedirs('results', exist_ok=True)
@@ -294,7 +293,6 @@ class Graph():
             pathcost_sheet = writer.sheets['Pathcost']
             nextnode_sheet = writer.sheets['Next node']
             parameters_sheet = writer.sheets['Parameters']
-            self.plot()
             plot_sheet = writer.book.create_sheet(title='Plot')
             plot_sheet.add_image(Image('plot.png'), 'A1')
             for row in pathcost_sheet['A1:A10']:
@@ -329,9 +327,10 @@ class Graph():
 if __name__ == '__main__':
     
     time_now = START_TIME
-    state_now = Node(time_slice=0, top_temp=START_TOP_TEMP_F, thermocline=START_THERMOCLINE)
+    state_now = Node(time_slice=0, top_temp=INITIAL_TOP_TEMP_F, thermocline=INITIAL_THERMOCLINE)
 
     g = Graph(state_now, time_now)
     g.solve_dijkstra()
     g.export_excel()
     # g.compute_bid()
+    g.plot()
